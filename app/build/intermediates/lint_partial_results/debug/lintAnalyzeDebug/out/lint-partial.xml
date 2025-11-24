@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<incidents format="6" by="lint 8.5.2" type="partial_results">
+    <map id="UnsafeIntentLaunch">
+            <map id="unprotected">
+                <entry
+                    name="com.offlinepayment.MainActivity"
+                    boolean="true"/>
+            </map>
+    </map>
+    <map id="UnusedResources">
+        <location id="R.color.purple_500"
+            file="${:app*debug*MAIN*sourceProvider*0*resDir*0}/values/colors.xml"
+            line="3"
+            column="12"
+            startOffset="64"
+            endLine="3"
+            endColumn="29"
+            endOffset="81"/>
+        <entry
+            name="model"
+            string="color[purple_500(D),teal_200(D)],drawable[ic_launcher_background(U),ic_launcher_foreground(U)],mipmap[ic_launcher(U),ic_launcher_round(U)],string[app_name(U),api_base_url(D)],style[Theme_OfflinePayment(U)];4^2^3,5^2^3;;;"/>
+        <location id="R.string.api_base_url"
+            file="${:app*debug*MAIN*sourceProvider*0*resDir*0}/values/strings.xml"
+            line="4"
+            column="10"
+            startOffset="112"
+            endLine="4"
+            endColumn="29"
+            endOffset="131"/>
+        <location id="R.color.teal_200"
+            file="${:app*debug*MAIN*sourceProvider*0*resDir*0}/values/colors.xml"
+            line="4"
+            column="12"
+            startOffset="112"
+            endLine="4"
+            endColumn="27"
+            endOffset="127"/>
+    </map>
+
+</incidents>

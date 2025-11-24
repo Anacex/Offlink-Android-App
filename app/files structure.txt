@@ -1,0 +1,55 @@
+C:\Users\akana\Desktop\OfflinePaymentApp
+└── app
+    ├── build
+    └── src
+        └── main
+            ├── java
+            │   └── com.offlinepayment
+            │       ├── data
+            │       │   ├── Transaction.kt
+            │       │   ├── .keep
+            │       │   └── MainActivity.kt
+            │       ├── db
+            │       │   ├── .keep
+            │       │   └── AppDatabase.kt
+            │       ├── ui
+            │       │   ├── SendPaymentScreen.kt
+            │       │   ├── .keep
+            │       │   ├── TransactionListScreen.kt
+            │       │   ├── TopUpScreen.kt
+            │       │   ├── WalletScreen.kt
+            │       │   │
+            │       │   ├── profile
+            │       │   │   └── ProfileScreen.kt
+            │       │   ├── qr
+            │       │   │   └── QRCodeScreen.kt
+            │       │   ├── theme
+            │       │   │   └── Theme.kt
+            │       │   ├── wallet
+            │       │   │   └── WalletScreen.kt
+            │       │   └── auth
+            │       │       ├── LoginScreen.kt
+            │       │       └── CreateAccountScreen.kt
+            │       ├── utils
+            │       │   ├── .keep
+            │       │   ├── CryptoHelper.kt
+            │       │   ├── CurrencyUtils.kt
+            │       │   ├── QRCodeHelper.kt
+            │       │   └── SyncService.kt
+            │       │
+            │       ├── .keep
+            │       └── MainActivity.kt
+            └── res
+                ├── drawable
+                │     ├──</>ic_launcher_background.xml
+                │     └──</>ic_launcher_foreground.xml
+                │
+                ├── values
+                │     ├──</>colors.xml
+                │     ├──</>themes.xml
+                │     └──</>strings.xml
+                └── mipmap-anydpi-v26
+                      ├──</>ic_launcher.xml
+                      └──</>ic_launcher_round.xml
+
+

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="teal_200">#FF03DAC5</color>
+    <string name="api_base_url">https://offline-payment-system-android.onrender.com/</string>
+    <string name="app_name">OfflinePayment</string>
+    <style name="Theme.OfflinePayment" parent="android:Theme.Material.Light.NoActionBar">
+        
+    </style>
+</resources>

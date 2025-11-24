@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<incidents format="6" by="lint 8.5.2" type="incidents">
+
+    <incident
+        id="MonochromeLauncherIcon"
+        severity="warning"
+        message="The application adaptive icon is missing a monochrome tag">
+        <location
+            file="${:app*debug*MAIN*sourceProvider*0*resDir*0}/mipmap-anydpi-v26/ic_launcher.xml"
+            line="2"
+            column="1"
+            startOffset="40"
+            endLine="5"
+            endColumn="17"
+            endOffset="276"/>
+    </incident>
+
+    <incident
+        id="MonochromeLauncherIcon"
+        severity="warning"
+        message="The application adaptive roundIcon is missing a monochrome tag">
+        <location
+            file="${:app*debug*MAIN*sourceProvider*0*resDir*0}/mipmap-anydpi-v26/ic_launcher_round.xml"
+            line="2"
+            column="1"
+            startOffset="40"
+            endLine="5"
+            endColumn="17"
+            endOffset="276"/>
+    </incident>
+
+    <incident
+        id="OldTargetApi"
+        severity="warning"
+        message="Not targeting the latest versions of Android; compatibility modes apply. Consider testing and updating this version. Consult the `android.os.Build.VERSION_CODES` javadoc for details.">
+        <fix-replace
+            description="Update targetSdkVersion to 36"
+            oldString="34"
+            replacement="36"
+            priority="0"/>
+        <location
+            file="${:app*projectDir}/build.gradle.kts"
+            line="14"
+            column="9"
+            startOffset="293"
+            endLine="14"
+            endColumn="23"
+            endOffset="307"/>
+    </incident>
+
+    <incident
+        id="GradleDependency"
+        severity="warning"
+        message="A newer version of androidx.core:core-ktx than 1.13.1 is available: 1.17.0">
+        <fix-replace
+            description="Change to 1.17.0"
+            family="Update versions"
+            oldString="1.13.1"
+            replacement="1.17.0"
+            priority="0"/>
+        <location
+            file="${:app*projectDir}/build.gradle.kts"
+            line="58"
+            column="20"
+            startOffset="1226"
+            endLine="58"
+            endColumn="51"
+            endOffset="1257"/>
+    </incident>
+
+    <incident
+        id="GradleDependency"
+        severity="warning"
+        message="A newer version of androidx.activity:activity-compose than 1.9.2 is available: 1.12.0">
+        <fix-replace
+            description="Change to 1.12.0"
+            family="Update versions"
+            oldString="1.9.2"
+            replacement="1.12.0"
+            priority="0"/>
+        <location
+            file="${:app*projectDir}/build.gradle.kts"
+            line="59"
+            column="20"
+            startOffset="1278"
+            endLine="59"
+            endColumn="62"
+            endOffset="1320"/>
+    </incident>
+
+    <incident
+        id="GradleDependency"
+        severity="warning"
+        message="A newer version of androidx.lifecycle:lifecycle-runtime-ktx than 2.8.5 is available: 2.10.0">
+        <fix-replace
+            description="Change to 2.10.0"
+            family="Update versions"
+            oldString="2.8.5"
+            replacement="2.10.0"
+            priority="0"/>
+        <location
+            file="${:app*projectDir}/build.gradle.kts"
+            line="60"
+            column="20"
+            startOffset="1341"
+            endLine="60"
+            endColumn="68"
+            endOffset="1389"/>
+    </incident>
+
+    <incident
+        id="GradleDependency"
+        severity="warning"
+        message="A newer version of androidx.lifecycle:lifecycle-viewmodel-compose than 2.8.5 is available: 2.10.0">
+        <fix-replace
+            description="Change to 2.10.0"
+            family="Update versions"
+            oldString="2.8.5"
+            replacement="2.10.0"
+            priority="0"/>
+        <location
+            file="${:app*projectDir}/build.gradle.kts"
+            line="61"
+            column="20"
+            startOffset="1410"
+            endLine="61"
+            endColumn="74"
+            endOffset="1464"/>
+    </incident>
+
+    <incident
+        id="GradleDependency"
+        severity="warning"
+        message="A newer version of androidx.navigation:navigation-compose than 2.8.0 is available: 2.9.6">
+        <fix-replace
+            description="Change to 2.9.6"
+            family="Update versions"
+            oldString="2.8.0"
+            replacement="2.9.6"
+            priority="0"/>
+        <location
+            file="${:app*projectDir}/build.gradle.kts"
+            line="70"
+            column="20"
+            startOffset="1843"
+            endLine="70"
+            endColumn="66"
+            endOffset="1889"/>
+    </incident>
+
+    <incident
+        id="GradleDependency"
+        severity="warning"
+        message="A newer version of androidx.datastore:datastore-preferences than 1.1.1 is available: 1.2.0">
+        <fix-replace
+            description="Change to 1.2.0"
+            family="Update versions"
+            oldString="1.1.1"
+            replacement="1.2.0"
+            priority="0"/>
+        <location
+            file="${:app*projectDir}/build.gradle.kts"
+            line="82"
+            column="20"
+            startOffset="2382"
+            endLine="82"
+            endColumn="68"
+            endOffset="2430"/>
+    </incident>
+
+</incidents>

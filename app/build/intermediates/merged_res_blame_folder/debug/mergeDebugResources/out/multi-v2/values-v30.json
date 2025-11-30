@@ -1,10 +1,10 @@
 {
     "logs": [
         {
-            "outputFile": "com.offlinepayment.app-mergeDebugResources-54:/values-v30/values-v30.xml",
+            "outputFile": "com.offlinepayment.app-mergeDebugResources-64:/values-v30/values-v30.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\akana\\.gradle\\caches\\9.0-milestone-1\\transforms\\1ca9cebcfeb8c35cbeb7a9093f09ed8d\\transformed\\material3-release\\res\\values-v30\\values-v30.xml",
+                    "source": "C:\\Users\\akana\\.gradle\\caches\\transforms-4\\b49858615bb5bbd630076d9b0b5a6740\\transformed\\material3-release\\res\\values-v30\\values-v30.xml",
                     "from": {
                         "startLines": "2",
                         "startColumns": "4",

@@ -1,12 +1,18 @@
 package com.offlinepayment.data
 
+import com.squareup.moshi.Json
 import java.math.BigDecimal
 
 data class WalletDto(
+    @Json(name = "id")
     val id: Int,
+    @Json(name = "wallet_type")
     val wallet_type: String,
+    @Json(name = "currency")
     val currency: String,
+    @Json(name = "balance")
     val balance: BigDecimal,
+    @Json(name = "is_active")
     val is_active: Boolean
 )
 

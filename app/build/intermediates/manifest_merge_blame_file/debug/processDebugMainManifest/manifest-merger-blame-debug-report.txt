@@ -9,8 +9,8 @@
 9        android:targetSdkVersion="34" />
 10
 11    <uses-permission android:name="android.permission.INTERNET" />
-11-->C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\main\AndroidManifest.xml:3:2-64
-11-->C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\main\AndroidManifest.xml:3:19-61
+11-->C:\Users\akana\Desktop\Android-App\app\src\main\AndroidManifest.xml:3:2-64
+11-->C:\Users\akana\Desktop\Android-App\app\src\main\AndroidManifest.xml:3:19-61
 12
 13    <permission
 13-->[androidx.core:core:1.13.1] C:\Users\akana\.gradle\caches\9.0-milestone-1\transforms\5c718dbd2e63ba2688e48472d9bcafc7\transformed\core-1.13.1\AndroidManifest.xml:22:5-24:47
@@ -24,41 +24,41 @@
 17-->[androidx.core:core:1.13.1] C:\Users\akana\.gradle\caches\9.0-milestone-1\transforms\5c718dbd2e63ba2688e48472d9bcafc7\transformed\core-1.13.1\AndroidManifest.xml:26:22-94
 18
 19    <application
-19-->C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\main\AndroidManifest.xml:4:2-20:16
+19-->C:\Users\akana\Desktop\Android-App\app\src\main\AndroidManifest.xml:4:2-20:16
 20        android:name="com.offlinepayment.OfflinePaymentApp"
-20-->C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\main\AndroidManifest.xml:5:3-36
+20-->C:\Users\akana\Desktop\Android-App\app\src\main\AndroidManifest.xml:5:3-36
 21        android:allowBackup="true"
-21-->C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\main\AndroidManifest.xml:6:3-29
+21-->C:\Users\akana\Desktop\Android-App\app\src\main\AndroidManifest.xml:6:3-29
 22        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
 22-->[androidx.core:core:1.13.1] C:\Users\akana\.gradle\caches\9.0-milestone-1\transforms\5c718dbd2e63ba2688e48472d9bcafc7\transformed\core-1.13.1\AndroidManifest.xml:28:18-86
 23        android:debuggable="true"
 24        android:extractNativeLibs="false"
 25        android:icon="@mipmap/ic_launcher"
-25-->C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\main\AndroidManifest.xml:7:3-37
+25-->C:\Users\akana\Desktop\Android-App\app\src\main\AndroidManifest.xml:7:3-37
 26        android:label="@string/app_name"
-26-->C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\main\AndroidManifest.xml:8:3-35
+26-->C:\Users\akana\Desktop\Android-App\app\src\main\AndroidManifest.xml:8:3-35
 27        android:roundIcon="@mipmap/ic_launcher_round"
-27-->C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\main\AndroidManifest.xml:9:3-48
+27-->C:\Users\akana\Desktop\Android-App\app\src\main\AndroidManifest.xml:9:3-48
 28        android:supportsRtl="true"
-28-->C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\main\AndroidManifest.xml:10:3-29
+28-->C:\Users\akana\Desktop\Android-App\app\src\main\AndroidManifest.xml:10:3-29
 29        android:testOnly="true"
 30        android:theme="@style/Theme.OfflinePayment" >
-30-->C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\main\AndroidManifest.xml:11:3-46
+30-->C:\Users\akana\Desktop\Android-App\app\src\main\AndroidManifest.xml:11:3-46
 31        <activity
-31-->C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\main\AndroidManifest.xml:12:3-19:14
+31-->C:\Users\akana\Desktop\Android-App\app\src\main\AndroidManifest.xml:12:3-19:14
 32            android:name="com.offlinepayment.MainActivity"
-32-->C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\main\AndroidManifest.xml:13:4-32
+32-->C:\Users\akana\Desktop\Android-App\app\src\main\AndroidManifest.xml:13:4-32
 33            android:exported="true" >
-33-->C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\main\AndroidManifest.xml:14:4-27
+33-->C:\Users\akana\Desktop\Android-App\app\src\main\AndroidManifest.xml:14:4-27
 34            <intent-filter>
-34-->C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\main\AndroidManifest.xml:15:4-18:20
+34-->C:\Users\akana\Desktop\Android-App\app\src\main\AndroidManifest.xml:15:4-18:20
 35                <action android:name="android.intent.action.MAIN" />
-35-->C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\main\AndroidManifest.xml:16:5-57
-35-->C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\main\AndroidManifest.xml:16:13-54
+35-->C:\Users\akana\Desktop\Android-App\app\src\main\AndroidManifest.xml:16:5-57
+35-->C:\Users\akana\Desktop\Android-App\app\src\main\AndroidManifest.xml:16:13-54
 36
 37                <category android:name="android.intent.category.LAUNCHER" />
-37-->C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\main\AndroidManifest.xml:17:5-65
-37-->C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\main\AndroidManifest.xml:17:15-62
+37-->C:\Users\akana\Desktop\Android-App\app\src\main\AndroidManifest.xml:17:5-65
+37-->C:\Users\akana\Desktop\Android-App\app\src\main\AndroidManifest.xml:17:15-62
 38            </intent-filter>
 39        </activity>
 40        <activity

@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Home
@@ -37,6 +38,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -76,7 +79,8 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OfflinePaymentRoot() {
-    val authViewModel: AuthViewModel = viewModel(factory = AuthViewModel.Factory)
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val authViewModel: AuthViewModel = viewModel(factory = AuthViewModel.createFactory(context))
     val walletViewModel: WalletViewModel = viewModel(factory = WalletViewModel.Factory)
     val authState by authViewModel.uiState.collectAsState()
     val walletState by walletViewModel.uiState.collectAsState()
@@ -112,6 +116,8 @@ fun OfflinePaymentRoot() {
     } else {
         MainAppContent(
             walletUiState = walletState,
+            authUiState = authState,
+            authViewModel = authViewModel,
             onLogout = {
                 authViewModel.logout()
                 showCreateAccount = false
@@ -126,6 +132,8 @@ fun OfflinePaymentRoot() {
 @Composable
 fun MainAppContent(
     walletUiState: WalletUiState,
+    authUiState: com.offlinepayment.ui.auth.AuthUiState,
+    authViewModel: AuthViewModel,
     onLogout: () -> Unit,
     onRefreshWallets: () -> Unit,
     onTransfer: (Int, Int, BigDecimal) -> Unit
@@ -207,8 +215,36 @@ fun MainAppContent(
                         onTopUpClick = {
                             onRefreshWallets()
                             navController.navigate("topup")
+                        },
+                        isEmailVerified = authUiState.isEmailVerified,
+                        userEmail = authUiState.userEmail,
+                        onVerifyEmailClick = {
+                            authViewModel.showEmailVerificationDialog()
                         }
                     )
+                    
+                    // Show email verification dialog
+                    if (authUiState.showEmailVerificationDialog) {
+                        com.offlinepayment.ui.auth.EmailVerificationDialog(
+                            email = authUiState.userEmail,
+                            isLoading = authUiState.isLoading,
+                            errorMessage = authUiState.errorMessage,
+                            successMessage = authUiState.successMessage,
+                            onOtpSubmit = { otp ->
+                                authUiState.userEmail?.let { email ->
+                                    authViewModel.verifyEmail(email, otp)
+                                }
+                            },
+                            onDismiss = {
+                                authViewModel.hideEmailVerificationDialog()
+                            },
+                            onResendOtp = {
+                                authUiState.userEmail?.let { email ->
+                                    authViewModel.requestEmailVerificationOtp(email)
+                                }
+                            }
+                        )
+                    }
                 }
                 composable("send") {
                     SendPaymentScreen { _, _ ->
@@ -267,41 +303,44 @@ fun DrawerContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .background(MaterialTheme.colorScheme.surface)
     ) {
         // User Info Header
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.primary)
+                .padding(24.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+            Column {
                 Text(
                     text = userName,
-                    fontSize = 20.sp,
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                    color = Color.White
                 )
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = userEmail,
                     fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                    color = Color.White.copy(alpha = 0.9f)
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     text = CurrencyUtils.formatPkr(userBalance),
-                    fontSize = 18.sp,
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                    color = Color.White
                 )
             }
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
+        
         // Navigation Items
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
         DrawerMenuItem(
             icon = Icons.Default.Home,
             title = "Wallet",
@@ -328,15 +367,23 @@ fun DrawerContent(
             onClick = { onNavigate("profile") }
         )
 
+        }
+        
         Spacer(modifier = Modifier.weight(1f))
 
         // Logout Button
-        DrawerMenuItem(
-            icon = Icons.Default.ExitToApp,
-            title = "Logout",
-            onClick = onLogout,
-            textColor = Color(0xFFDC2626)
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            DrawerMenuItem(
+                icon = Icons.Default.ExitToApp,
+                title = "Logout",
+                onClick = onLogout,
+                textColor = Color(0xFFDC2626)
+            )
+        }
     }
 }
 
@@ -350,9 +397,10 @@ fun DrawerMenuItem(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(vertical = 4.dp)
+            .clickable { onClick() },
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        onClick = onClick
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
             modifier = Modifier

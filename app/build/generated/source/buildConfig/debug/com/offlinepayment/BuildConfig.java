@@ -10,5 +10,5 @@ public final class BuildConfig {
   public static final int VERSION_CODE = 1;
   public static final String VERSION_NAME = "1.0";
   // Field from default config.
-  public static final String API_BASE_URL = "https://offline-payment-system-android.onrender.com/";
+  public static final String API_BASE_URL = "https://offline-payment-system-android-f8hr.onrender.com/";
 }

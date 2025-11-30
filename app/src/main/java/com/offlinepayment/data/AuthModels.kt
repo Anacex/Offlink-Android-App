@@ -19,8 +19,16 @@ data class LoginRequest(
     val device_fingerprint: String
 )
 data class LoginStep1Response(
-    val nonce_demo: String,
-    val otp_demo: String
+    val requires_otp: Boolean,
+    // OTP fields (when requires_otp is true)
+    val nonce_demo: String? = null,
+    val otp_demo: String? = null,
+    // Token fields (when requires_otp is false)
+    val access_token: String? = null,
+    val token_type: String? = null,
+    val refresh_token: String? = null,
+    // Email verification status
+    val email_verified: Boolean? = null
 )
 data class LoginConfirmRequest(
     val email: String,
@@ -60,4 +68,12 @@ data class RefreshTokenRequest(
 data class TokenRefreshResponse(
     val access_token: String,
     val token_type: String
+)
+
+data class UserInfoResponse(
+    val id: Int,
+    val email: String,
+    val name: String,
+    val phone: String?,
+    val emailVerified: Boolean
 )

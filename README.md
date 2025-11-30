@@ -12,7 +12,7 @@ This Android app is part of the **Offline Payment System** project, designed to 
 - Perform offline transactions (via QR codes)
 - Sync transactions when connectivity is restored
 
-**Backend Server:** [https://offline-payment-system-android.onrender.com](https://offline-payment-system-android.onrender.com)
+**Backend Server:** [https://offline-payment-system-android-f8hr.onrender.com](https://offline-payment-system-android-f8hr.onrender.com)
 
 ---
 
@@ -43,7 +43,7 @@ This Android app is part of the **Offline Payment System** project, designed to 
 3. **Configure API Base URL** (if needed):
    - The base URL is configured in `app/build.gradle.kts`:
      ```kotlin
-     buildConfigField("String", "API_BASE_URL", "\"https://offline-payment-system-android.onrender.com/\"")
+     buildConfigField("String", "API_BASE_URL", "\"https://offline-payment-system-android-f8hr.onrender.com/\"")
      ```
    - For local development, change this to your local server URL
 
@@ -68,7 +68,7 @@ This Android app is part of the **Offline Payment System** project, designed to 
 Before testing the app, you **must wake up** the services:
 
 1. **Wake up the Render server**:
-   - Visit: https://offline-payment-system-android.onrender.com/health
+   - Visit: https://offline-payment-system-android-f8hr.onrender.com/health
    - Wait 30-60 seconds for the server to fully start
    - You should see a JSON response: `{"status": "healthy"}`
 
@@ -78,7 +78,7 @@ Before testing the app, you **must wake up** the services:
 
 3. **Test connectivity**:
    ```bash
-   curl https://offline-payment-system-android.onrender.com/health
+   curl https://offline-payment-system-android-f8hr.onrender.com/health
    ```
 
 **Note**: The first API call after inactivity may take 30-60 seconds. Subsequent calls will be fast until the next sleep period.
@@ -430,7 +430,7 @@ Future permissions (for offline features):
 5. **Server connection timeouts**:
    - Ensure you've woken up the Render server (see "Server & Database Wake-Up" section)
    - First request after inactivity may take 30-60 seconds
-   - Check server status: https://offline-payment-system-android.onrender.com/health
+   - Check server status: https://offline-payment-system-android-f8hr.onrender.com/health
 
 ---
 
@@ -540,8 +540,8 @@ Key dependencies (see `app/build.gradle.kts` for full list):
 
 - **Backend API Docs**: See `../API_DOCUMENTATION.md` in backend directory
 - **Requirements**: See `Offline-Payment-System-Requirements.md`
-- **Backend Server**: https://offline-payment-system-android.onrender.com
-- **Health Check**: https://offline-payment-system-android.onrender.com/health
+- **Backend Server**: https://offline-payment-system-android-f8hr.onrender.com
+- **Health Check**: https://offline-payment-system-android-f8hr.onrender.com/health
 
 ---
 

@@ -16,6 +16,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -70,6 +72,22 @@ fun CreateAccountScreen(
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
     var confirmPasswordVisible by rememberSaveable { mutableStateOf(false) }
     var showPasswordRequirements by rememberSaveable { mutableStateOf(false) }
+    
+    val otpFocusRequester = remember { FocusRequester() }
+    
+    // Auto-focus OTP input when signup succeeds
+    LaunchedEffect(uiState.isSignupOtpStep) {
+        if (uiState.isSignupOtpStep) {
+            // Use the email from signup response
+            email = uiState.signupEmail ?: email
+            // Clear any previous OTP - user must manually enter it for security
+            // Note: We intentionally do NOT auto-fill OTP even if server provides otp_demo
+            // OTPs should only be received via email/SMS, not through API responses
+            verificationOtp = ""
+            // Focus the OTP field
+            otpFocusRequester.requestFocus()
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -131,146 +149,49 @@ fun CreateAccountScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Registration Form
+            // Registration Form or OTP Verification
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = Color.White),
                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    OutlinedTextField(
-                        modifier = Modifier.fillMaxWidth(),
-                        value = fullName,
-                        onValueChange = { fullName = it },
-                        label = { Text("Full Name") },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF10B981),
-                            focusedLabelColor = Color(0xFF10B981)
-                        )
+                if (uiState.isSignupOtpStep) {
+                    // Show OTP verification screen after successful signup
+                    OtpVerificationSection(
+                        email = uiState.signupEmail ?: email,
+                        otp = verificationOtp,
+                        onOtpChange = { verificationOtp = it },
+                        onVerify = { onVerifyEmail(uiState.signupEmail ?: email, verificationOtp.trim()) },
+                        isLoading = uiState.isLoading,
+                        errorMessage = uiState.errorMessage,
+                        successMessage = uiState.successMessage,
+                        otpFocusRequester = otpFocusRequester
                     )
-
-                    OutlinedTextField(
-                        modifier = Modifier.fillMaxWidth(),
-                        value = email,
-                        onValueChange = { email = it },
-                        label = { Text("Email") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF10B981),
-                            focusedLabelColor = Color(0xFF10B981)
-                        )
-                    )
-
-                    OutlinedTextField(
-                        modifier = Modifier.fillMaxWidth(),
-                        value = phoneNumber,
-                        onValueChange = { phoneNumber = it },
-                        label = { Text("Phone Number") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF10B981),
-                            focusedLabelColor = Color(0xFF10B981)
-                        )
-                    )
-
-                    OutlinedTextField(
-                        modifier = Modifier.fillMaxWidth(),
-                        value = password,
-                        onValueChange = { 
+                } else {
+                    // Show registration form
+                    RegistrationFormSection(
+                        fullName = fullName,
+                        onFullNameChange = { fullName = it },
+                        email = email,
+                        onEmailChange = { email = it },
+                        phoneNumber = phoneNumber,
+                        onPhoneNumberChange = { phoneNumber = it },
+                        password = password,
+                        onPasswordChange = { 
                             password = it
                             showPasswordRequirements = it.isNotEmpty() && !isPasswordValid(it)
                         },
-                        label = { Text("Password") },
-                        singleLine = true,
-                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        trailingIcon = {
-                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                Icon(
-                                    imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = if (passwordVisible) "Hide password" else "Show password"
-                                )
-                            }
-                        },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF10B981),
-                            focusedLabelColor = Color(0xFF10B981)
-                        )
-                    )
-                    if (showPasswordRequirements) {
-                        Column(modifier = Modifier.padding(start = 4.dp, top = 4.dp)) {
-                            Text(
-                                text = "Password requirements:",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            getPasswordRequirements(password).forEach { (requirement, met) ->
-                                Text(
-                                    text = "${if (met) "✓" else "✗"} $requirement",
-                                    fontSize = 11.sp,
-                                    color = if (met) Color(0xFF059669) else MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.padding(start = 8.dp, top = 2.dp)
-                                )
-                            }
-                        }
-                    } else {
-                        Text(
-                            text = "Must be 10+ chars with uppercase, lowercase, number, and special char",
-                            fontSize = 11.sp,
-                            color = Color.Gray,
-                            modifier = Modifier.padding(start = 4.dp, top = 4.dp)
-                        )
-                    }
-
-                    OutlinedTextField(
-                        modifier = Modifier.fillMaxWidth(),
-                        value = confirmPassword,
-                        onValueChange = { confirmPassword = it },
-                        label = { Text("Confirm Password") },
-                        singleLine = true,
-                        visualTransformation = if (confirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        trailingIcon = {
-                            IconButton(onClick = { confirmPasswordVisible = !confirmPasswordVisible }) {
-                                Icon(
-                                    imageVector = if (confirmPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = if (confirmPasswordVisible) "Hide password" else "Show password"
-                                )
-                            }
-                        },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF10B981),
-                            focusedLabelColor = Color(0xFF10B981)
-                        )
-                    )
-
-                    val combinedError = errorMessage.ifEmpty { uiState.errorMessage.orEmpty() }
-                    if (combinedError.isNotEmpty()) {
-                        Text(
-                            text = combinedError,
-                            color = MaterialTheme.colorScheme.error,
-                            fontSize = 14.sp
-                        )
-                    }
-                    uiState.successMessage?.let { message ->
-                        Text(
-                            text = message,
-                            color = Color(0xFF059669),
-                            fontSize = 14.sp
-                        )
-                    }
-
-                    Button(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = {
+                        confirmPassword = confirmPassword,
+                        onConfirmPasswordChange = { confirmPassword = it },
+                        passwordVisible = passwordVisible,
+                        onPasswordVisibleToggle = { passwordVisible = !passwordVisible },
+                        confirmPasswordVisible = confirmPasswordVisible,
+                        onConfirmPasswordVisibleToggle = { confirmPasswordVisible = !confirmPasswordVisible },
+                        showPasswordRequirements = showPasswordRequirements,
+                        errorMessage = errorMessage.ifEmpty { uiState.errorMessage.orEmpty() },
+                        successMessage = uiState.successMessage,
+                        isLoading = uiState.isLoading,
+                        onSignup = {
                             when {
                                 fullName.isEmpty() || email.isEmpty() || phoneNumber.isEmpty() || password.isEmpty() || confirmPassword.isEmpty() -> {
                                     errorMessage = "Please fill all fields"
@@ -296,68 +217,318 @@ fun CreateAccountScreen(
                                 }
                             }
                         },
-                        enabled = !uiState.isLoading,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF059669)
-                        )
-                    ) {
-                        if (uiState.isLoading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                color = Color.White
-                            )
-                        } else {
-                            Text("Create Account", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    Divider()
-
-                    Text(
-                        text = "Already received the verification OTP?",
-                        fontSize = 14.sp,
-                        color = Color.Gray
+                        onBackToLogin = onBackToLogin
                     )
-                    OutlinedTextField(
-                        modifier = Modifier.fillMaxWidth(),
-                        value = verificationOtp,
-                        onValueChange = { verificationOtp = it },
-                        label = { Text("Email OTP") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF10B981),
-                            focusedLabelColor = Color(0xFF10B981)
-                        )
-                    )
-                    Button(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = { onVerifyEmail(email.trim(), verificationOtp.trim()) },
-                        enabled = email.isNotBlank() && verificationOtp.isNotBlank() && !uiState.isLoading,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF0D9488)
-                        )
-                    ) {
-                        Text("Verify Email", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = "Already have an account? ",
-                            color = Color.Gray
-                        )
-                        TextButton(onClick = onBackToLogin) {
-                            Text(
-                                text = "Login",
-                                color = Color(0xFF10B981),
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OtpVerificationSection(
+    email: String,
+    otp: String,
+    onOtpChange: (String) -> Unit,
+    onVerify: () -> Unit,
+    isLoading: Boolean,
+    errorMessage: String?,
+    successMessage: String?,
+    otpFocusRequester: FocusRequester
+) {
+    Column(
+        modifier = Modifier.padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "Verify Your Email",
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF059669)
+        )
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        Text(
+            text = "We've sent a verification code to",
+            fontSize = 14.sp,
+            color = Color.Gray
+        )
+        Text(
+            text = email,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color(0xFF059669)
+        )
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Text(
+            text = "Please check your email for the verification code",
+            fontSize = 13.sp,
+            color = Color.Gray,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        
+        OutlinedTextField(
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(otpFocusRequester),
+            value = otp,
+            onValueChange = { if (it.length <= 6 && it.all { char -> char.isDigit() }) onOtpChange(it) },
+            label = { Text("Enter OTP", color = Color(0xFF374151)) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF10B981),
+                focusedLabelColor = Color(0xFF10B981),
+                unfocusedBorderColor = Color(0xFF9CA3AF),
+                unfocusedLabelColor = Color(0xFF6B7280),
+                focusedTextColor = Color(0xFF111827), // Dark text when focused
+                unfocusedTextColor = Color(0xFF111827) // Dark text when unfocused
+            ),
+            placeholder = { Text("000000", color = Color(0xFF9CA3AF)) }
+        )
+        
+        errorMessage?.let {
+            Text(
+                text = it,
+                color = MaterialTheme.colorScheme.error,
+                fontSize = 14.sp
+            )
+        }
+        
+        successMessage?.let {
+            Text(
+                text = it,
+                color = Color(0xFF059669),
+                fontSize = 14.sp
+            )
+        }
+        
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onVerify,
+            enabled = otp.length == 6 && !isLoading,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF059669)
+            )
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = Color.White
+                )
+            } else {
+                Text("Verify Email", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RegistrationFormSection(
+    fullName: String,
+    onFullNameChange: (String) -> Unit,
+    email: String,
+    onEmailChange: (String) -> Unit,
+    phoneNumber: String,
+    onPhoneNumberChange: (String) -> Unit,
+    password: String,
+    onPasswordChange: (String) -> Unit,
+    confirmPassword: String,
+    onConfirmPasswordChange: (String) -> Unit,
+    passwordVisible: Boolean,
+    onPasswordVisibleToggle: () -> Unit,
+    confirmPasswordVisible: Boolean,
+    onConfirmPasswordVisibleToggle: () -> Unit,
+    showPasswordRequirements: Boolean,
+    errorMessage: String,
+    successMessage: String?,
+    isLoading: Boolean,
+    onSignup: () -> Unit,
+    onBackToLogin: () -> Unit
+) {
+    Column(
+        modifier = Modifier.padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        OutlinedTextField(
+            modifier = Modifier.fillMaxWidth(),
+            value = fullName,
+            onValueChange = onFullNameChange,
+            label = { Text("Full Name", color = Color(0xFF374151)) },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF10B981),
+                focusedLabelColor = Color(0xFF10B981),
+                unfocusedBorderColor = Color(0xFF9CA3AF),
+                unfocusedLabelColor = Color(0xFF6B7280),
+                focusedTextColor = Color(0xFF111827), // Dark text when focused
+                unfocusedTextColor = Color(0xFF111827) // Dark text when unfocused
+            )
+        )
+
+        OutlinedTextField(
+            modifier = Modifier.fillMaxWidth(),
+            value = email,
+            onValueChange = onEmailChange,
+            label = { Text("Email", color = Color(0xFF374151)) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF10B981),
+                focusedLabelColor = Color(0xFF10B981),
+                unfocusedBorderColor = Color(0xFF9CA3AF),
+                unfocusedLabelColor = Color(0xFF6B7280),
+                focusedTextColor = Color(0xFF111827), // Dark text when focused
+                unfocusedTextColor = Color(0xFF111827) // Dark text when unfocused
+            )
+        )
+
+        OutlinedTextField(
+            modifier = Modifier.fillMaxWidth(),
+            value = phoneNumber,
+            onValueChange = onPhoneNumberChange,
+            label = { Text("Phone Number", color = Color(0xFF374151)) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF10B981),
+                focusedLabelColor = Color(0xFF10B981),
+                unfocusedBorderColor = Color(0xFF9CA3AF),
+                unfocusedLabelColor = Color(0xFF6B7280),
+                focusedTextColor = Color(0xFF111827), // Dark text when focused
+                unfocusedTextColor = Color(0xFF111827) // Dark text when unfocused
+            )
+        )
+
+        OutlinedTextField(
+            modifier = Modifier.fillMaxWidth(),
+            value = password,
+            onValueChange = onPasswordChange,
+            label = { Text("Password", color = Color(0xFF374151)) },
+            singleLine = true,
+            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            trailingIcon = {
+                IconButton(onClick = onPasswordVisibleToggle) {
+                    Icon(
+                        imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                        contentDescription = if (passwordVisible) "Hide password" else "Show password"
+                    )
+                }
+            },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF10B981),
+                focusedLabelColor = Color(0xFF10B981),
+                unfocusedBorderColor = Color(0xFF9CA3AF),
+                unfocusedLabelColor = Color(0xFF6B7280),
+                focusedTextColor = Color(0xFF111827), // Dark text when focused
+                unfocusedTextColor = Color(0xFF111827) // Dark text when unfocused
+            )
+        )
+        if (showPasswordRequirements) {
+            Column(modifier = Modifier.padding(start = 4.dp, top = 4.dp)) {
+                Text(
+                    text = "Password requirements:",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.error
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                getPasswordRequirements(password).forEach { (requirement, met) ->
+                    Text(
+                        text = "${if (met) "✓" else "✗"} $requirement",
+                        fontSize = 11.sp,
+                        color = if (met) Color(0xFF059669) else MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(start = 8.dp, top = 2.dp)
+                    )
+                }
+            }
+        } else {
+            Text(
+                text = "Must be 10+ chars with uppercase, lowercase, number, and special char",
+                fontSize = 11.sp,
+                color = Color.Gray,
+                modifier = Modifier.padding(start = 4.dp, top = 4.dp)
+            )
+        }
+
+        OutlinedTextField(
+            modifier = Modifier.fillMaxWidth(),
+            value = confirmPassword,
+            onValueChange = onConfirmPasswordChange,
+            label = { Text("Confirm Password", color = Color(0xFF374151)) },
+            singleLine = true,
+            visualTransformation = if (confirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            trailingIcon = {
+                IconButton(onClick = onConfirmPasswordVisibleToggle) {
+                    Icon(
+                        imageVector = if (confirmPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                        contentDescription = if (confirmPasswordVisible) "Hide password" else "Show password"
+                    )
+                }
+            },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF10B981),
+                focusedLabelColor = Color(0xFF10B981),
+                unfocusedBorderColor = Color(0xFF9CA3AF),
+                unfocusedLabelColor = Color(0xFF6B7280),
+                focusedTextColor = Color(0xFF111827), // Dark text when focused
+                unfocusedTextColor = Color(0xFF111827) // Dark text when unfocused
+            )
+        )
+
+        if (errorMessage.isNotEmpty()) {
+            Text(
+                text = errorMessage,
+                color = MaterialTheme.colorScheme.error,
+                fontSize = 14.sp
+            )
+        }
+        successMessage?.let { message ->
+            Text(
+                text = message,
+                color = Color(0xFF059669),
+                fontSize = 14.sp
+            )
+        }
+
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onSignup,
+            enabled = !isLoading,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF059669)
+            )
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = Color.White
+                )
+            } else {
+                Text("Create Account", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "Already have an account? ",
+                color = Color.Gray
+            )
+            TextButton(onClick = onBackToLogin) {
+                Text(
+                    text = "Login",
+                    color = Color(0xFF10B981),
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }

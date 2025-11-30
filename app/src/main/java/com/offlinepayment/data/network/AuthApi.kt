@@ -8,9 +8,11 @@ import com.offlinepayment.data.RefreshTokenRequest
 import com.offlinepayment.data.SignupRequest
 import com.offlinepayment.data.SignupResponse
 import com.offlinepayment.data.TokenRefreshResponse
+import com.offlinepayment.data.UserInfoResponse
 import com.offlinepayment.data.VerifyEmailRequest
 import com.offlinepayment.data.VerifyEmailResponse
 import retrofit2.http.Body
+import retrofit2.http.GET
 import retrofit2.http.POST
 
 /**
@@ -32,5 +34,8 @@ interface AuthApi {
 
     @POST("auth/token/refresh")
     suspend fun refreshToken(@Body request: RefreshTokenRequest): TokenRefreshResponse
+    
+    @GET("auth/me")
+    suspend fun getUserInfo(): UserInfoResponse
 }
 

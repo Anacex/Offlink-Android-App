@@ -6,7 +6,9 @@ import kotlinx.coroutines.flow.StateFlow
 data class AuthSession(
     val accessToken: String,
     val refreshToken: String,
-    val deviceFingerprint: String
+    val deviceFingerprint: String,
+    val isEmailVerified: Boolean = false,
+    val userEmail: String? = null
 )
 
 object AuthSessionManager {

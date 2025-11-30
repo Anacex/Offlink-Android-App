@@ -50,10 +50,10 @@ com.offlinepayment.app-lifecycle-process-2.8.5-48 C:\Users\akana\.gradle\caches\
 com.offlinepayment.app-savedstate-1.2.1-49 C:\Users\akana\.gradle\caches\9.0-milestone-1\transforms\f45d498db85d7c0b3e2402092103f85b\transformed\savedstate-1.2.1\res
 com.offlinepayment.app-material-icons-extended-release-50 C:\Users\akana\.gradle\caches\9.0-milestone-1\transforms\f787e0afaa7d6d2c76ccb4cef06868d8\transformed\material-icons-extended-release\res
 com.offlinepayment.app-navigation-runtime-ktx-2.8.0-51 C:\Users\akana\.gradle\caches\9.0-milestone-1\transforms\f853fcdccbc9a3edd10380eae017667e\transformed\navigation-runtime-ktx-2.8.0\res
-com.offlinepayment.app-pngs-52 C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\build\generated\res\pngs\debug
-com.offlinepayment.app-resValues-53 C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\build\generated\res\resValues\debug
-com.offlinepayment.app-packageDebugResources-54 C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\build\intermediates\incremental\debug\packageDebugResources\merged.dir
-com.offlinepayment.app-packageDebugResources-55 C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\build\intermediates\incremental\debug\packageDebugResources\stripped.dir
-com.offlinepayment.app-debug-56 C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\build\intermediates\merged_res\debug\mergeDebugResources
-com.offlinepayment.app-debug-57 C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\debug\res
-com.offlinepayment.app-main-58 C:\Users\akana\Desktop\Offline-Payment-System-Android\Android-App\app\src\main\res
+com.offlinepayment.app-pngs-52 C:\Users\akana\Desktop\Android-App\app\build\generated\res\pngs\debug
+com.offlinepayment.app-resValues-53 C:\Users\akana\Desktop\Android-App\app\build\generated\res\resValues\debug
+com.offlinepayment.app-packageDebugResources-54 C:\Users\akana\Desktop\Android-App\app\build\intermediates\incremental\debug\packageDebugResources\merged.dir
+com.offlinepayment.app-packageDebugResources-55 C:\Users\akana\Desktop\Android-App\app\build\intermediates\incremental\debug\packageDebugResources\stripped.dir
+com.offlinepayment.app-debug-56 C:\Users\akana\Desktop\Android-App\app\build\intermediates\merged_res\debug\mergeDebugResources
+com.offlinepayment.app-debug-57 C:\Users\akana\Desktop\Android-App\app\src\debug\res
+com.offlinepayment.app-main-58 C:\Users\akana\Desktop\Android-App\app\src\main\res

@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("kotlin-kapt")
 }
 
 android {
@@ -17,7 +18,7 @@ android {
         buildConfigField(
             "String",
             "API_BASE_URL",
-            "\"https://offline-payment-system-android.onrender.com/\""
+            "\"https://offline-payment-system-android-f8hr.onrender.com/\""
         )
     }
 
@@ -81,6 +82,15 @@ dependencies {
 
     // DataStore (token/device persistence TODO: encrypt in production)
     implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+    // Room Database for offline storage
+    val roomVersion = "2.6.1"
+    implementation("androidx.room:room-runtime:$roomVersion")
+    implementation("androidx.room:room-ktx:$roomVersion")
+    kapt("androidx.room:room-compiler:$roomVersion")
+
+    // Biometric authentication
+    implementation("androidx.biometric:biometric:1.1.0")
 
     // ZXing QR Code support
     implementation("com.google.zxing:core:3.5.3")

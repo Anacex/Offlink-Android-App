@@ -17,8 +17,9 @@ out/
 #  Uncomment the following line in case you need and you don't have the release build type files in your app
 # release/
 
-# Gradle files
+# Gradle — local caches only (the committed gradle/wrapper/ files bootstrap the build)
 .gradle/
+**/build/
 build/
 
 # Local configuration file (sdk path, etc)
@@ -36,25 +37,9 @@ proguard/
 # Android Studio captures folder
 captures/
 
-# IntelliJ / Android Studio
+# IntelliJ / Android Studio — entire folder is machine-specific; do not commit
+.idea/
 *.iml
-.idea/workspace.xml
-.idea/tasks.xml
-.idea/gradle.xml
-.idea/assetWizardSettings.xml
-.idea/dictionaries
-.idea/libraries
-.idea/caches
-.idea/modules.xml
-.idea/navEditor.xml
-.idea/shelf/
-.idea/.name
-.idea/compiler.xml
-.idea/jarRepositories.xml
-.idea/misc.xml
-.idea/vcs.xml
-.idea/deploymentTargetDropDown.xml
-.idea/render.experimental.xml
 
 # Keystore files
 # NEVER commit keystore files - they contain sensitive signing keys
@@ -138,10 +123,7 @@ obj/
 # Additional modern Android files
 *.hprof
 app/build/
-.gradle/
 gradle-app.setting
-!gradle-wrapper.jar
-!gradle-wrapper.properties
 .gradletasknamecache
 
 # AndroidX

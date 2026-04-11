@@ -1,6 +1,7 @@
 package com.offlinepayment.data.repository
 
 import android.content.Context
+import com.offlinepayment.data.AccountBlockedException
 import com.offlinepayment.data.ApiErrorResponse
 import com.offlinepayment.data.LoginConfirmRequest
 import com.offlinepayment.data.LoginConfirmResponse
@@ -11,6 +12,10 @@ import com.offlinepayment.data.SignupRequest
 import com.offlinepayment.data.SignupResponse
 import com.offlinepayment.data.TokenRefreshResponse
 import com.offlinepayment.data.UserInfoResponse
+import com.offlinepayment.data.ForgotPasswordConfirmRequest
+import com.offlinepayment.data.ForgotPasswordConfirmResponse
+import com.offlinepayment.data.ForgotPasswordRequest
+import com.offlinepayment.data.ForgotPasswordRequestResponse
 import com.offlinepayment.data.VerifyEmailRequest
 import com.offlinepayment.data.VerifyEmailResponse
 import com.offlinepayment.data.local.AppDatabase
@@ -18,6 +23,7 @@ import com.offlinepayment.data.local.OfflineUser
 import com.offlinepayment.data.network.AuthApi
 import com.offlinepayment.data.session.AuthSession
 import com.offlinepayment.data.session.AuthSessionManager
+import com.offlinepayment.utils.AccountBlockedParser
 import com.offlinepayment.utils.PasswordUtils
 import com.offlinepayment.utils.ErrorUtils
 import com.squareup.moshi.Moshi
@@ -36,6 +42,28 @@ class AuthRepository(
 
     suspend fun signup(request: SignupRequest): Result<SignupResponse> =
         safeApiCall { api.signup(request) }
+
+    suspend fun requestForgotPassword(email: String): Result<ForgotPasswordRequestResponse> =
+        safeApiCall { api.forgotPassword(ForgotPasswordRequest(email = email.trim())) }
+
+    suspend fun confirmForgotPassword(
+        email: String,
+        otp: String,
+        nonce: String,
+        newPassword: String,
+        confirmPassword: String,
+    ): Result<ForgotPasswordConfirmResponse> =
+        safeApiCall {
+            api.forgotPasswordConfirm(
+                ForgotPasswordConfirmRequest(
+                    email = email.trim(),
+                    otp = otp.trim(),
+                    nonce = nonce.trim(),
+                    new_password = newPassword,
+                    confirm_password = confirmPassword,
+                )
+            )
+        }
 
     suspend fun verifyEmail(request: VerifyEmailRequest): Result<VerifyEmailResponse> =
         safeApiCall { 
@@ -320,6 +348,11 @@ class AuthRepository(
                 Result.success(block())
             } catch (e: HttpException) {
                 val errorBody = e.response()?.errorBody()?.string()
+                if (e.code() == 403) {
+                    AccountBlockedParser.extractBlockedUserMessage(errorBody)?.let { msg ->
+                        return@withContext Result.failure(AccountBlockedException(msg))
+                    }
+                }
                 val errorMessage = ErrorUtils.extractErrorMessage(
                     errorBody = errorBody,
                     httpCode = e.code(),

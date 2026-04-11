@@ -10,6 +10,7 @@ import com.offlinepayment.data.network.ApiClient
 import com.offlinepayment.data.repository.AuthRepository
 import com.offlinepayment.data.session.AuthSessionManager
 import com.offlinepayment.data.session.DeviceFingerprintProvider
+import com.offlinepayment.data.AccountBlockedException
 import com.offlinepayment.utils.NetworkUtils
 import com.offlinepayment.utils.BiometricAuthHelper
 import com.offlinepayment.utils.ErrorUtils
@@ -33,7 +34,18 @@ data class AuthUiState(
     val isSignupOtpStep: Boolean = false,
     val isEmailVerified: Boolean = false,
     val userEmail: String? = null,
-    val showEmailVerificationDialog: Boolean = false
+    val showEmailVerificationDialog: Boolean = false,
+    val forgotPasswordLoading: Boolean = false,
+    val forgotPasswordError: String? = null,
+    val forgotPasswordInfo: String? = null,
+    val forgotPasswordAwaitingCode: Boolean = false,
+    val forgotPasswordNonce: String? = null,
+    val forgotPasswordEmail: String? = null,
+    val forgotPasswordOtpDemo: String? = null,
+    val passwordResetCompleteMessage: String? = null,
+    /** Server suspended the account (e.g. ledger fraud); show full-screen until cleared in DB. */
+    val accountSuspended: Boolean = false,
+    val accountSuspendedDetail: String? = null,
 )
 
 enum class AuthFlowStep { Credentials, Otp }
@@ -91,10 +103,27 @@ class AuthViewModel(
                         )
                     }
                 },
-                onFailure = { 
-                    // Silently fail - verification status will remain as stored in session
+                onFailure = { err ->
+                    if (err is AccountBlockedException) {
+                        AuthSessionManager.updateSession(null)
+                        _uiState.update {
+                            it.copy(
+                                accountSuspended = true,
+                                accountSuspendedDetail = err.message,
+                                isLoggedIn = false,
+                                isLoading = false,
+                                isOtpStep = false,
+                            )
+                        }
+                    }
                 }
             )
+        }
+    }
+
+    fun clearAccountSuspended() {
+        _uiState.update {
+            it.copy(accountSuspended = false, accountSuspendedDetail = null, errorMessage = null)
         }
     }
 
@@ -388,8 +417,24 @@ class AuthViewModel(
                     if (elapsedTime < minimumDelayMs) {
                         kotlinx.coroutines.delay(minimumDelayMs - elapsedTime)
                     }
-                    _uiState.update {
-                        it.copy(isLoading = false, errorMessage = ErrorUtils.cleanErrorMessageForDisplay(error.message))
+                    if (error is AccountBlockedException) {
+                        AuthSessionManager.updateSession(null)
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                accountSuspended = true,
+                                accountSuspendedDetail = error.message,
+                                isLoggedIn = false,
+                                errorMessage = null,
+                            )
+                        }
+                    } else {
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                errorMessage = ErrorUtils.cleanErrorMessageForDisplay(error.message),
+                            )
+                        }
                     }
                 }
             )
@@ -441,8 +486,25 @@ class AuthViewModel(
                     if (elapsedTime < minimumDelayMs) {
                         kotlinx.coroutines.delay(minimumDelayMs - elapsedTime)
                     }
-                    _uiState.update {
-                        it.copy(isLoading = false, errorMessage = ErrorUtils.cleanErrorMessageForDisplay(error.message))
+                    if (error is AccountBlockedException) {
+                        AuthSessionManager.updateSession(null)
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                isOtpStep = false,
+                                accountSuspended = true,
+                                accountSuspendedDetail = error.message,
+                                isLoggedIn = false,
+                                errorMessage = null,
+                            )
+                        }
+                    } else {
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                errorMessage = ErrorUtils.cleanErrorMessageForDisplay(error.message),
+                            )
+                        }
                     }
                 }
             )
@@ -451,6 +513,116 @@ class AuthViewModel(
 
     fun logout() {
         repository.logout()
+    }
+
+    fun clearForgotPasswordState() {
+        _uiState.update {
+            it.copy(
+                forgotPasswordLoading = false,
+                forgotPasswordError = null,
+                forgotPasswordInfo = null,
+                forgotPasswordAwaitingCode = false,
+                forgotPasswordNonce = null,
+                forgotPasswordEmail = null,
+                forgotPasswordOtpDemo = null,
+                passwordResetCompleteMessage = null,
+            )
+        }
+    }
+
+    fun consumePasswordResetCompleteMessage() {
+        _uiState.update { it.copy(passwordResetCompleteMessage = null) }
+    }
+
+    fun requestPasswordReset(email: String) {
+        val trimmed = email.trim()
+        if (trimmed.isBlank()) {
+            _uiState.update { it.copy(forgotPasswordError = "Email is required") }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    forgotPasswordLoading = true,
+                    forgotPasswordError = null,
+                    forgotPasswordInfo = null,
+                )
+            }
+            val result = repository.requestForgotPassword(trimmed)
+            _uiState.update {
+                result.fold(
+                    onSuccess = { res ->
+                        val hasNonce = !res.nonce_demo.isNullOrBlank()
+                        it.copy(
+                            forgotPasswordLoading = false,
+                            forgotPasswordError = null,
+                            forgotPasswordInfo = res.msg,
+                            forgotPasswordAwaitingCode = hasNonce,
+                            forgotPasswordNonce = res.nonce_demo,
+                            forgotPasswordEmail = if (hasNonce) trimmed else null,
+                            forgotPasswordOtpDemo = res.otp_demo,
+                        )
+                    },
+                    onFailure = { error ->
+                        it.copy(
+                            forgotPasswordLoading = false,
+                            forgotPasswordError = ErrorUtils.cleanErrorMessageForDisplay(error.message),
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    fun confirmPasswordReset(otp: String, newPassword: String, confirmPassword: String) {
+        val email = _uiState.value.forgotPasswordEmail
+        val nonce = _uiState.value.forgotPasswordNonce
+        if (email.isNullOrBlank() || nonce.isNullOrBlank()) {
+            _uiState.update { it.copy(forgotPasswordError = "Request a reset code first") }
+            return
+        }
+        if (otp.isBlank()) {
+            _uiState.update { it.copy(forgotPasswordError = "Enter the code from your email") }
+            return
+        }
+        if (newPassword != confirmPassword) {
+            _uiState.update { it.copy(forgotPasswordError = "Passwords do not match") }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(forgotPasswordLoading = true, forgotPasswordError = null)
+            }
+            val result = repository.confirmForgotPassword(
+                email = email,
+                otp = otp,
+                nonce = nonce,
+                newPassword = newPassword,
+                confirmPassword = confirmPassword,
+            )
+            _uiState.update {
+                result.fold(
+                    onSuccess = { res ->
+                        it.copy(
+                            forgotPasswordLoading = false,
+                            forgotPasswordError = null,
+                            passwordResetCompleteMessage = res.msg,
+                            forgotPasswordAwaitingCode = false,
+                            forgotPasswordNonce = null,
+                            forgotPasswordEmail = null,
+                            forgotPasswordOtpDemo = null,
+                            forgotPasswordInfo = null,
+                        )
+                    },
+                    onFailure = { error ->
+                        it.copy(
+                            forgotPasswordLoading = false,
+                            forgotPasswordError = ErrorUtils.cleanErrorMessageForDisplay(error.message),
+                        )
+                    },
+                )
+            }
+        }
     }
 
     companion object {

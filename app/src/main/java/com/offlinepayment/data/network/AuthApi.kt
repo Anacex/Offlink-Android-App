@@ -9,6 +9,10 @@ import com.offlinepayment.data.SignupRequest
 import com.offlinepayment.data.SignupResponse
 import com.offlinepayment.data.TokenRefreshResponse
 import com.offlinepayment.data.UserInfoResponse
+import com.offlinepayment.data.ForgotPasswordRequest
+import com.offlinepayment.data.ForgotPasswordConfirmRequest
+import com.offlinepayment.data.ForgotPasswordConfirmResponse
+import com.offlinepayment.data.ForgotPasswordRequestResponse
 import com.offlinepayment.data.VerifyEmailRequest
 import com.offlinepayment.data.VerifyEmailResponse
 import retrofit2.http.Body
@@ -31,6 +35,12 @@ interface AuthApi {
 
     @POST("auth/login/confirm")
     suspend fun confirmLogin(@Body request: LoginConfirmRequest): LoginConfirmResponse
+
+    @POST("auth/forgot-password")
+    suspend fun forgotPassword(@Body body: ForgotPasswordRequest): ForgotPasswordRequestResponse
+
+    @POST("auth/forgot-password/confirm")
+    suspend fun forgotPasswordConfirm(@Body request: ForgotPasswordConfirmRequest): ForgotPasswordConfirmResponse
 
     @POST("auth/token/refresh")
     suspend fun refreshToken(@Body request: RefreshTokenRequest): TokenRefreshResponse

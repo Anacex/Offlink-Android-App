@@ -30,6 +30,10 @@ data class TransactionPayloadQR(
     val payerName: String,
     
     @Json(name = "note")
-    val note: String? = null // Optional note
+    val note: String? = null, // Optional note
+
+    /** Sender TEE/Keystore EC public key (X509 SPKI Base64) for verifying BLE SENDER_OK. */
+    @Json(name = "payerPkB64")
+    val payerPkB64: String? = null,
 )
 

@@ -1,6 +1,7 @@
 package com.offlinepayment
 
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.*
@@ -39,6 +40,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -46,12 +48,16 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.offlinepayment.ui.auth.AccountSuspendedScreen
 import com.offlinepayment.ui.auth.AuthViewModel
 import com.offlinepayment.ui.auth.CreateAccountScreen
+import com.offlinepayment.ui.auth.ForgotPasswordScreen
 import com.offlinepayment.ui.auth.LoginScreen
 import com.offlinepayment.ui.profile.ProfileScreen
 import com.offlinepayment.ui.qr.QRCodeScreen
@@ -59,7 +65,12 @@ import com.offlinepayment.ui.qr.QRScannerScreen
 import com.offlinepayment.ui.qr.TransactionIntentReceivedScreen
 import com.offlinepayment.ui.qr.TransactionReceivedScreen
 import com.offlinepayment.ui.qr.TransactionQRScannerScreen
+import com.offlinepayment.ble.BleOfflinkAssessment
+import com.offlinepayment.ble.BleOfflinkEligibility
+import com.offlinepayment.ble.BlePaymentLink
 import com.offlinepayment.ui.SendPaymentScreen
+import com.offlinepayment.ui.ble.BleReceiverReadyScreen
+import com.offlinepayment.ui.ble.BleSenderScanScreen
 import com.offlinepayment.ui.TopUpScreen
 import com.offlinepayment.ui.TransactionListScreen
 import com.offlinepayment.ui.WalletScreen
@@ -94,6 +105,7 @@ fun OfflinePaymentRoot() {
     val walletState by walletViewModel.uiState.collectAsState()
 
     var showCreateAccount by remember { mutableStateOf(false) }
+    var showForgotPassword by remember { mutableStateOf(false) }
 
     LaunchedEffect(authState.isLoggedIn) {
         if (authState.isLoggedIn) {
@@ -101,25 +113,52 @@ fun OfflinePaymentRoot() {
         }
     }
 
+    if (authState.accountSuspended) {
+        AccountSuspendedScreen(
+            detail = authState.accountSuspendedDetail,
+            onBackToSignIn = { authViewModel.clearAccountSuspended() },
+        )
+        return
+    }
+
     if (!authState.isLoggedIn) {
-        if (showCreateAccount) {
-            CreateAccountScreen(
-                uiState = authState,
-                onSignup = authViewModel::signup,
-                onVerifyEmail = authViewModel::verifyEmail,
-                onBackToLogin = {
-                    showCreateAccount = false
-                }
-            )
-        } else {
-            LoginScreen(
-                uiState = authState,
-                onLogin = authViewModel::startLogin,
-                onOtpConfirm = authViewModel::confirmOtp,
-                onCreateAccount = {
-                    showCreateAccount = true
-                }
-            )
+        when {
+            showForgotPassword -> {
+                ForgotPasswordScreen(
+                    uiState = authState,
+                    onRequestReset = authViewModel::requestPasswordReset,
+                    onConfirmReset = authViewModel::confirmPasswordReset,
+                    onBack = {
+                        authViewModel.clearForgotPasswordState()
+                        showForgotPassword = false
+                    },
+                    onConsumeCompleteMessage = authViewModel::consumePasswordResetCompleteMessage,
+                )
+            }
+            showCreateAccount -> {
+                CreateAccountScreen(
+                    uiState = authState,
+                    onSignup = authViewModel::signup,
+                    onVerifyEmail = authViewModel::verifyEmail,
+                    onBackToLogin = {
+                        showCreateAccount = false
+                    }
+                )
+            }
+            else -> {
+                LoginScreen(
+                    uiState = authState,
+                    onLogin = authViewModel::startLogin,
+                    onOtpConfirm = authViewModel::confirmOtp,
+                    onCreateAccount = {
+                        showCreateAccount = true
+                    },
+                    onForgotPassword = {
+                        authViewModel.clearForgotPasswordState()
+                        showForgotPassword = true
+                    }
+                )
+            }
         }
     } else {
         MainAppContent(
@@ -310,11 +349,27 @@ fun MainAppContent(
                 modifier = Modifier.padding(paddingValues)
             ) {
                 composable("wallet") {
+                    val walletContext = LocalContext.current
                     WalletScreen(
                         uiState = walletUiState,
                         onRefresh = onRefreshWallets,
                         onTransfer = onTransfer,
-                        onSendClick = { navController.navigate("send") },
+                        onSendClick = {
+                            when (val a = BleOfflinkEligibility.assessSender(walletContext)) {
+                                is BleOfflinkAssessment.Blocked ->
+                                    Toast.makeText(walletContext, a.userMessage, Toast.LENGTH_LONG).show()
+                                is BleOfflinkAssessment.Ok ->
+                                    navController.navigate("ble-sender-scan")
+                            }
+                        },
+                        onReceivePaymentBleClick = {
+                            when (val a = BleOfflinkEligibility.assessReceiver(walletContext)) {
+                                is BleOfflinkAssessment.Blocked ->
+                                    Toast.makeText(walletContext, a.userMessage, Toast.LENGTH_LONG).show()
+                                is BleOfflinkAssessment.Ok ->
+                                    navController.navigate("ble-receiver-ready")
+                            }
+                        },
                         onViewTransactionsClick = { navController.navigate("transactions") },
                         onTopUpClick = {
                             // Biometric authentication will be handled in the topup composable
@@ -359,6 +414,32 @@ fun MainAppContent(
                             }
                         )
                     }
+                }
+                composable("ble-sender-scan") {
+                    BleSenderScanScreen(
+                        onBack = { navController.popBackStack() },
+                        onLinked = {
+                            BlePaymentLink.wasLinkedForBleSend = true
+                            navController.navigate("send") {
+                                popUpTo("ble-sender-scan") { inclusive = true }
+                            }
+                        },
+                    )
+                }
+                composable("ble-receiver-ready") {
+                    val uid = finalUserId?.toString() ?: "0"
+                    BleReceiverReadyScreen(
+                        userIdSuffix = uid,
+                        onBack = {
+                            BlePaymentLink.server?.stop()
+                            BlePaymentLink.server = null
+                            BlePaymentLink.isReceiverHosting = false
+                            navController.popBackStack()
+                        },
+                        onReadyContinue = {
+                            navController.navigate("transaction-qr-scanner/1")
+                        },
+                    )
                 }
                 composable("send") {
                     // Get first offline wallet ID if available, otherwise use default
@@ -432,6 +513,7 @@ fun MainAppContent(
                         senderPublicKey = senderPublicKey,
                         senderName = senderName,
                         senderAccount = senderAccount,
+                        bleHandshakeEnabled = BlePaymentLink.wasLinkedForBleSend,
                         onGenerateQR = { qrData ->
                             // QR generated, already shown in screen
                         },
@@ -444,7 +526,10 @@ fun MainAppContent(
                             // The payee QR is stored in the screen state
                             // No need to navigate, just update the screen
                         },
-                        scannedPayeeQRFromNav = scannedPayeeQRFromNav
+                        scannedPayeeQRFromNav = scannedPayeeQRFromNav,
+                        onBleLinkLostExit = {
+                            navController.popBackStack("wallet", inclusive = false)
+                        },
                     )
                     }
                 }
@@ -504,7 +589,16 @@ fun MainAppContent(
                         }
                     }
                 }
-                composable("transaction-qr-scanner") {
+                composable(
+                    route = "transaction-qr-scanner/{bleHost}",
+                    arguments = listOf(
+                        navArgument("bleHost") {
+                            type = NavType.StringType
+                            defaultValue = "0"
+                        },
+                    ),
+                ) { entry ->
+                    val bleReceiverMode = entry.arguments?.getString("bleHost") == "1"
                     val context = androidx.compose.ui.platform.LocalContext.current
                     val session = com.offlinepayment.data.session.AuthSessionManager.currentSession()
                     val database = com.offlinepayment.data.local.AppDatabase.getDatabase(context)
@@ -522,6 +616,7 @@ fun MainAppContent(
                     if (currentUserId != null) {
                         com.offlinepayment.ui.qr.TransactionQRScannerScreen(
                             currentPayeeId = currentUserId,
+                            bleReceiverMode = bleReceiverMode,
                             onScanResult = { payload ->
                                 // Store scanned transaction payload in shared state (more reliable than savedStateHandle)
                                 scannedTransactionPayloadShared = payload
@@ -884,7 +979,7 @@ fun MainAppContent(
                             balance = userBalance,
                             onScanQR = {
                                 // Navigate to transaction QR scanner (to scan sender's transaction QR)
-                                navController.navigate("transaction-qr-scanner")
+                                navController.navigate("transaction-qr-scanner/0")
                             }
                         )
                     }

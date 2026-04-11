@@ -24,9 +24,21 @@ interface LocalTransactionDao {
     @Query("SELECT * FROM local_transactions WHERE nonce = :nonce LIMIT 1")
     suspend fun getTransactionByNonce(nonce: String): LocalTransaction?
     
-    // Get all pending transactions for sync
-    @Query("SELECT * FROM local_transactions WHERE status = 'pending' ORDER BY createdAtDevice ASC")
+    // Get all pending transactions for sync (chain order then time)
+    @Query("SELECT * FROM local_transactions WHERE status = 'pending' ORDER BY ledgerSequence ASC, createdAtDevice ASC")
     suspend fun getPendingTransactions(): List<LocalTransaction>
+
+    @Query(
+        "SELECT * FROM local_transactions WHERE ledgerEntryHash IS NOT NULL AND ledgerSequence > 0 " +
+            "ORDER BY ledgerSequence DESC LIMIT 1",
+    )
+    suspend fun getLatestChainedTail(): LocalTransaction?
+
+    @Query(
+        "SELECT * FROM local_transactions WHERE ledgerEntryHash IS NOT NULL AND ledgerSequence > 0 " +
+            "ORDER BY ledgerSequence ASC",
+    )
+    suspend fun getAllChainedOrderedBySequence(): List<LocalTransaction>
     
     // Get transactions by status
     @Query("SELECT * FROM local_transactions WHERE status = :status ORDER BY createdAtDevice DESC")

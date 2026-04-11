@@ -20,6 +20,7 @@ import com.offlinepayment.data.network.WalletApi
 import com.offlinepayment.data.network.ApiClient
 import android.content.SharedPreferences
 import com.offlinepayment.data.session.AuthSessionManager
+import com.offlinepayment.security.OfflineLedgerChain
 import com.offlinepayment.utils.EncryptionHelper
 import com.offlinepayment.utils.ErrorUtils
 import com.offlinepayment.utils.NetworkUtils
@@ -276,10 +277,19 @@ class WalletRepository(
 
     /**
      * Save a local transaction to the database.
+     * Applies AES-GCM encryption to plaintext JSON in [LocalTransaction.rawPayload] / [LocalTransaction.receiptData]
+     * when [context] is available, then appends a hash-chain entry for tamper detection at sync.
      */
     suspend fun saveLocalTransaction(transaction: LocalTransaction) {
         withContext(ioDispatcher) {
-            localTransactionDao?.insertTransaction(transaction)
+            val dao = localTransactionDao ?: return@withContext
+            val ctx = context
+            val toStore = if (ctx != null) {
+                OfflineLedgerChain.appendEncryptedAndChained(dao, ctx, transaction)
+            } else {
+                transaction
+            }
+            dao.insertTransaction(toStore)
         }
     }
     
@@ -467,7 +477,10 @@ class WalletRepository(
             payerId = null, // Not available from server
             payeeId = null, // Not available from server
             direction = "SENT", // Synced transactions are always sent by current user
-            rawPayload = null
+            rawPayload = null,
+            ledgerPrevHash = null,
+            ledgerEntryHash = null,
+            ledgerSequence = 0L,
         )
     }
     

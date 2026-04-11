@@ -9,6 +9,7 @@ import com.offlinepayment.data.local.LocalTransaction
 import com.offlinepayment.data.network.ApiClient
 import com.offlinepayment.data.session.AuthSessionManager
 import com.offlinepayment.data.session.DeviceFingerprintProvider
+import com.offlinepayment.security.OfflineLedgerChain
 import com.offlinepayment.utils.NetworkUtils
 import android.util.Log
 import kotlinx.coroutines.flow.Flow
@@ -204,12 +205,23 @@ class SyncRepository(private val context: Context) {
                 .toString()
         )
         
+        val hasChain = !localTx.ledgerEntryHash.isNullOrBlank()
+        val integrityJson = if (hasChain) {
+            OfflineLedgerChain.buildIntegrityCanonicalJson(localTx)
+        } else {
+            null
+        }
+
         return SyncTransactionRequest(
             transaction_data = transactionData,
             signature = localTx.transactionSignature,
             receipt = receipt.ifEmpty { null },
             device_fingerprint = localTx.deviceFingerprint ?: DeviceFingerprintProvider.getFingerprint(),
-            txId = localTx.txId
+            txId = localTx.txId,
+            ledger_prev_hash = localTx.ledgerPrevHash,
+            ledger_entry_hash = localTx.ledgerEntryHash,
+            ledger_sequence = if (hasChain) localTx.ledgerSequence else null,
+            integrity_canonical_json = integrityJson,
         )
     }
     

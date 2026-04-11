@@ -29,12 +29,19 @@ import androidx.core.content.ContextCompat
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import com.offlinepayment.ble.BleHandshake
+import com.offlinepayment.ble.BlePaymentLink
 import com.offlinepayment.data.TransactionPayloadQR
 import com.offlinepayment.data.repository.WalletRepository
 import com.offlinepayment.data.network.ApiClient
 import com.offlinepayment.utils.QRCodeHelper
 import java.util.concurrent.Executors
+import android.widget.Toast
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 
 /**
  * Scanner screen for receiving transaction payload QR codes.
@@ -44,6 +51,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun TransactionQRScannerScreen(
     currentPayeeId: String, // Current user's ID to validate payeeId in QR
+    bleReceiverMode: Boolean = false,
     onScanResult: (TransactionPayloadQR) -> Unit,
     onBack: () -> Unit
 ) {
@@ -141,7 +149,14 @@ fun TransactionQRScannerScreen(
                                 it.setAnalyzer(
                                     Executors.newSingleThreadExecutor()
                                 ) { imageProxy ->
-                                    processImageProxyForTransaction(imageProxy, currentPayeeId, repository, scope) { transaction ->
+                                    processImageProxyForTransaction(
+                                        imageProxy = imageProxy,
+                                        context = ctx,
+                                        currentPayeeId = currentPayeeId,
+                                        repository = repository,
+                                        scope = scope,
+                                        bleReceiverMode = bleReceiverMode,
+                                    ) { transaction ->
                                         scannedTransaction = transaction
                                         onScanResult(transaction)
                                     }
@@ -202,10 +217,12 @@ fun TransactionQRScannerScreen(
 
 private fun processImageProxyForTransaction(
     imageProxy: ImageProxy,
+    context: android.content.Context,
     currentPayeeId: String,
     repository: WalletRepository,
     scope: kotlinx.coroutines.CoroutineScope,
-    onResult: (TransactionPayloadQR) -> Unit
+    bleReceiverMode: Boolean,
+    onResult: (TransactionPayloadQR) -> Unit,
 ) {
     val mediaImage = imageProxy.image
     if (mediaImage != null) {
@@ -229,68 +246,99 @@ private fun processImageProxyForTransaction(
                                     currentPayeeId = currentPayeeId
                                 )
                                 if (validation.isValid) {
-                                    // Save transaction to local storage as "RECEIVED" (Step 4)
-                                    scope.launch {
-                                        val moshi = com.squareup.moshi.Moshi.Builder()
-                                            .add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
-                                            .build()
-                                        val adapter = moshi.adapter(com.offlinepayment.data.TransactionPayloadQR::class.java)
-                                        val rawPayload = adapter.toJson(transactionPayload)
-                                        
-                                        // Convert amount from paisa (Long) to PKR string format
-                                        val amountInPkr = java.math.BigDecimal(transactionPayload.amount.toString())
-                                            .divide(java.math.BigDecimal("100"))
-                                            .toPlainString()
-                                        
-                                        // Get receiver wallet info
-                                        val payeeUserId = currentPayeeId.toIntOrNull()
-                                        val receiverWallet = payeeUserId?.let { 
-                                            repository.getOfflineWalletByUserIdAndType(it, "offline")
-                                        }
-                                        
-                                        val localTransaction = com.offlinepayment.data.local.LocalTransaction(
-                                            txId = transactionPayload.txId,
-                                            senderWalletId = 0, // Sender wallet ID not available in payload, will be updated on sync
-                                            receiverPublicKey = receiverWallet?.publicKey ?: "pending_${transactionPayload.payeeId}",
-                                            amount = amountInPkr,
-                                            currency = "PKR",
-                                            transactionSignature = "", // Will be set when transaction is signed
-                                            nonce = transactionPayload.nonce,
-                                            receiptHash = "", // Will be set when receipt is created
-                                            receiptData = "{}", // Will be set when receipt is created
-                                            status = "pending",
-                                            createdAtDevice = transactionPayload.timestamp,
-                                            deviceFingerprint = com.offlinepayment.data.session.DeviceFingerprintProvider.getFingerprint(),
-                                            // Legacy fields for backward compatibility
-                                            payerId = transactionPayload.payerId,
-                                            payeeId = transactionPayload.payeeId,
-                                            direction = "RECEIVED",
-                                            rawPayload = rawPayload
-                                        )
-                                        
-                                        repository.saveLocalTransaction(localTransaction)
-                                        
-                                        // Update receiver's wallet balance (add amount)
-                                        try {
-                                            val payeeUserId = currentPayeeId.toIntOrNull()
-                                            if (payeeUserId != null) {
-                                                val offlineWallet = repository.getOfflineWalletByUserIdAndType(payeeUserId, "offline")
-                                                if (offlineWallet != null) {
-                                                    val currentBalance = java.math.BigDecimal(offlineWallet.balance)
-                                                    val transactionAmount = java.math.BigDecimal(transactionPayload.amount.toString()).divide(java.math.BigDecimal("100")) // Convert from paisa to PKR
-                                                    val newBalance = currentBalance.add(transactionAmount)
-                                                    // Ensure balance doesn't exceed max limit
-                                                    val maxBalance = java.math.BigDecimal("5000")
-                                                    val finalBalance = newBalance.min(maxBalance)
-                                                    repository.updateOfflineWalletBalance(offlineWallet.walletId, finalBalance.toPlainString())
+                                    val useBle = bleReceiverMode && BlePaymentLink.server != null
+                                    if (useBle) {
+                                        scope.launch {
+                                            val msg = coroutineScope {
+                                                val abort = async {
+                                                    BlePaymentLink.sessionAbortFlow.first()
+                                                }
+                                                val work = async {
+                                                    BleHandshake.receiverSendAckAndAwaitOk(
+                                                        context = context,
+                                                        repository = repository,
+                                                        payload = transactionPayload,
+                                                        currentPayeeId = currentPayeeId,
+                                                    )
+                                                }
+                                                select<String?> {
+                                                    abort.onAwait { reason ->
+                                                        work.cancel()
+                                                        reason
+                                                    }
+                                                    work.onAwait { res ->
+                                                        abort.cancel()
+                                                        if (res.isSuccess) {
+                                                            onResult(transactionPayload)
+                                                            null
+                                                        } else {
+                                                            res.exceptionOrNull()?.message
+                                                                ?: "Bluetooth payment could not be completed"
+                                                        }
+                                                    }
                                                 }
                                             }
-                                        } catch (e: Exception) {
-                                            // Log error but don't block transaction
-                                            android.util.Log.e("TransactionQRScanner", "Failed to update receiver balance: ${e.message}")
+                                            msg?.let { m ->
+                                                android.util.Log.e("TransactionQRScanner", "BLE receive flow: $m")
+                                                Toast.makeText(context, m, Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    } else {
+                                        scope.launch {
+                                            val moshi = com.squareup.moshi.Moshi.Builder()
+                                                .add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
+                                                .build()
+                                            val adapter = moshi.adapter(com.offlinepayment.data.TransactionPayloadQR::class.java)
+                                            val rawPayload = adapter.toJson(transactionPayload)
+
+                                            val amountInPkr = java.math.BigDecimal(transactionPayload.amount.toString())
+                                                .divide(java.math.BigDecimal("100"))
+                                                .toPlainString()
+
+                                            val payeeUserId = currentPayeeId.toIntOrNull()
+                                            val receiverWallet = payeeUserId?.let {
+                                                repository.getOfflineWalletByUserIdAndType(it, "offline")
+                                            }
+
+                                            val localTransaction = com.offlinepayment.data.local.LocalTransaction(
+                                                txId = transactionPayload.txId,
+                                                senderWalletId = 0,
+                                                receiverPublicKey = receiverWallet?.publicKey ?: "pending_${transactionPayload.payeeId}",
+                                                amount = amountInPkr,
+                                                currency = "PKR",
+                                                transactionSignature = "",
+                                                nonce = transactionPayload.nonce,
+                                                receiptHash = "",
+                                                receiptData = "{}",
+                                                status = "pending",
+                                                createdAtDevice = transactionPayload.timestamp,
+                                                deviceFingerprint = com.offlinepayment.data.session.DeviceFingerprintProvider.getFingerprint(),
+                                                payerId = transactionPayload.payerId,
+                                                payeeId = transactionPayload.payeeId,
+                                                direction = "RECEIVED",
+                                                rawPayload = rawPayload,
+                                            )
+
+                                            repository.saveLocalTransaction(localTransaction)
+
+                                            try {
+                                                if (payeeUserId != null) {
+                                                    val offlineWallet = repository.getOfflineWalletByUserIdAndType(payeeUserId, "offline")
+                                                    if (offlineWallet != null) {
+                                                        val currentBalance = java.math.BigDecimal(offlineWallet.balance)
+                                                        val transactionAmount = java.math.BigDecimal(transactionPayload.amount.toString()).divide(java.math.BigDecimal("100"))
+                                                        val newBalance = currentBalance.add(transactionAmount)
+                                                        val maxBalance = java.math.BigDecimal("5000")
+                                                        val finalBalance = newBalance.min(maxBalance)
+                                                        repository.updateOfflineWalletBalance(offlineWallet.walletId, finalBalance.toPlainString())
+                                                    }
+                                                }
+                                            } catch (e: Exception) {
+                                                android.util.Log.e("TransactionQRScanner", "Failed to update receiver balance: ${e.message}")
+                                            }
+                                            onResult(transactionPayload)
                                         }
                                     }
-                                    onResult(transactionPayload)
                                 }
                             }
                         }

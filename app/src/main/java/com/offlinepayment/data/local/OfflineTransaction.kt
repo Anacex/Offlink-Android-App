@@ -43,6 +43,14 @@ data class LocalTransaction(
     val payerId: String? = null,
     val payeeId: String? = null,
     val direction: String? = null, // "SENT" or "RECEIVED"
-    val rawPayload: String? = null // Full JSON stored for backward compatibility
+    val rawPayload: String? = null, // Full JSON stored for backward compatibility
+
+    /**
+     * Hash-chained offline ledger (tamper-evident). Null / zero = legacy row before chaining.
+     * [ledgerEntryHash] = SHA-256 hex of (ledgerPrevHash | integrityCanonicalJson).
+     */
+    val ledgerPrevHash: String? = null,
+    val ledgerEntryHash: String? = null,
+    val ledgerSequence: Long = 0L,
 )
 

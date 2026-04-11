@@ -29,36 +29,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.offlinepayment.R
-
-/**
- * Validates password complexity to match server requirements:
- * - At least 10 characters
- * - Contains uppercase letter
- * - Contains lowercase letter
- * - Contains a digit
- * - Contains a special character
- */
-private fun isPasswordValid(password: String): Boolean {
-    if (password.length < 10) return false
-    val hasUpperCase = password.any { it.isUpperCase() }
-    val hasLowerCase = password.any { it.isLowerCase() }
-    val hasDigit = password.any { it.isDigit() }
-    val hasSpecialChar = password.any { !it.isLetterOrDigit() && !it.isWhitespace() }
-    return hasUpperCase && hasLowerCase && hasDigit && hasSpecialChar
-}
-
-/**
- * Returns detailed password requirement status
- */
-private fun getPasswordRequirements(password: String): List<Pair<String, Boolean>> {
-    return listOf(
-        "At least 10 characters" to (password.length >= 10),
-        "Contains uppercase letter" to password.any { it.isUpperCase() },
-        "Contains lowercase letter" to password.any { it.isLowerCase() },
-        "Contains a number" to password.any { it.isDigit() },
-        "Contains special character" to password.any { !it.isLetterOrDigit() && !it.isWhitespace() }
-    )
-}
+import com.offlinepayment.utils.meetsSignupPasswordPolicy
+import com.offlinepayment.utils.signupPasswordRequirements
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -173,7 +145,7 @@ fun CreateAccountScreen(
                         password = password,
                         onPasswordChange = { 
                             password = it
-                            showPasswordRequirements = it.isNotEmpty() && !isPasswordValid(it)
+                            showPasswordRequirements = it.isNotEmpty() && !meetsSignupPasswordPolicy(it)
                         },
                         confirmPassword = confirmPassword,
                         onConfirmPasswordChange = { confirmPassword = it },
@@ -195,7 +167,7 @@ fun CreateAccountScreen(
                                     errorMessage = "Passwords do not match"
                                     showPasswordRequirements = false
                                 }
-                                !isPasswordValid(password) -> {
+                                !meetsSignupPasswordPolicy(password) -> {
                                     errorMessage = "Password does not meet complexity requirements"
                                     showPasswordRequirements = true
                                 }
@@ -427,7 +399,7 @@ private fun RegistrationFormSection(
                     color = MaterialTheme.colorScheme.error
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                getPasswordRequirements(password).forEach { (requirement, met) ->
+                signupPasswordRequirements(password).forEach { (requirement, met) ->
                     Text(
                         text = "${if (met) "✓" else "✗"} $requirement",
                         fontSize = 11.sp,

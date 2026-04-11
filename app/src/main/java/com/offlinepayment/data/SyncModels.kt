@@ -12,7 +12,14 @@ data class SyncTransactionRequest(
     val receipt: Map<String, Any>? = null,
     val device_fingerprint: String? = null,
     val txId: String? = null,
-    val transaction_id: String? = null
+    val transaction_id: String? = null,
+    /** Previous entry hash in device hash-chain (64 hex) or genesis. */
+    @Json(name = "ledger_prev_hash") val ledger_prev_hash: String? = null,
+    /** SHA-256 hex of (ledger_prev_hash | integrity_canonical_json). */
+    @Json(name = "ledger_entry_hash") val ledger_entry_hash: String? = null,
+    @Json(name = "ledger_sequence") val ledger_sequence: Long? = null,
+    /** Deterministic JSON string; must match client row used to compute [ledger_entry_hash]. */
+    @Json(name = "integrity_canonical_json") val integrity_canonical_json: String? = null,
 )
 
 data class SyncRequest(

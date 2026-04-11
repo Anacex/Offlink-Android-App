@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.content.Context
 import androidx.compose.ui.platform.LocalContext
+import com.offlinepayment.ble.BleOfflinkAssessment
+import com.offlinepayment.ble.BleOfflinkEligibility
 import com.offlinepayment.ui.wallet.WalletUiState
 import com.offlinepayment.utils.CurrencyUtils
 import com.offlinepayment.utils.NetworkUtils
@@ -62,6 +64,7 @@ fun WalletScreen(
     onRefresh: () -> Unit,
     onTransfer: (Int, Int, BigDecimal) -> Unit,
     onSendClick: () -> Unit,
+    onReceivePaymentBleClick: () -> Unit = {},
     onViewTransactionsClick: () -> Unit,
     onTopUpClick: () -> Unit = {},
     onInitiateWalletCreation: (String) -> Unit = {},
@@ -76,6 +79,8 @@ fun WalletScreen(
     val context = LocalContext.current
     val isOnlineLocal = NetworkUtils.isOnline(context)
     val balanceText = uiState.wallets.firstOrNull()?.balance?.toPlainString() ?: "0.00"
+    val bleSenderAssessment = BleOfflinkEligibility.assessSender(context)
+    val bleReceiverAssessment = BleOfflinkEligibility.assessReceiver(context)
 
     // Modern digital wallet background - clean white with subtle gradient
     Box(
@@ -760,6 +765,27 @@ fun WalletScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            when (val s = bleSenderAssessment) {
+                is BleOfflinkAssessment.Blocked -> {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2)),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Text(
+                            text = "Bluetooth send unavailable: ${s.userMessage}",
+                            modifier = Modifier.padding(12.dp),
+                            fontSize = 13.sp,
+                            color = Color(0xFF991B1B),
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+                is BleOfflinkAssessment.Ok -> { }
+            }
+
             // Quick Actions - Modern card layout
             Row(
                 modifier = Modifier
@@ -829,6 +855,60 @@ fun WalletScreen(
             }
 
             Spacer(modifier = Modifier.height(12.dp))
+
+            when (val r = bleReceiverAssessment) {
+                is BleOfflinkAssessment.Blocked -> {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2)),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Text(
+                            text = "Bluetooth receive unavailable: ${r.userMessage}",
+                            modifier = Modifier.padding(12.dp),
+                            fontSize = 13.sp,
+                            color = Color(0xFF991B1B),
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+                is BleOfflinkAssessment.Ok -> { }
+            }
+
+            if (isEmailVerified) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .clickable { onReceivePaymentBleClick() },
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1D4ED8)),
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "📡",
+                            fontSize = 24.sp,
+                            modifier = Modifier.padding(end = 12.dp)
+                        )
+                        Text(
+                            text = "Receive payment (Bluetooth)",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 16.sp,
+                            color = Color.White
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
 
             // Top Up Button
             if (isEmailVerified) {

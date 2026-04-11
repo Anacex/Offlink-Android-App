@@ -33,7 +33,8 @@ fun LoginScreen(
     uiState: AuthUiState,
     onLogin: (email: String, password: String) -> Unit,
     onOtpConfirm: (otp: String) -> Unit,
-    onCreateAccount: () -> Unit
+    onCreateAccount: () -> Unit,
+    onForgotPassword: () -> Unit,
 ) {
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
@@ -150,6 +151,24 @@ fun LoginScreen(
                             unfocusedTextColor = Color(0xFF111827)
                         )
                     )
+
+                    if (!uiState.isOtpStep) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(
+                                onClick = onForgotPassword,
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                            ) {
+                                Text(
+                                    text = "Forgot password?",
+                                    color = Color(0xFF3B82F6),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
 
                     if (uiState.isOtpStep) {
                         OutlinedTextField(

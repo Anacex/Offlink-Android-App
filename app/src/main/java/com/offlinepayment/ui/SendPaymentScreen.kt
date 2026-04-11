@@ -59,6 +59,16 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlin.text.Charsets
 import com.offlinepayment.utils.NetworkUtils
+import com.offlinepayment.ble.BleHandshake
+import com.offlinepayment.ble.BlePaymentMessages
+import com.offlinepayment.ble.BlePaymentLink
+import com.offlinepayment.ble.BleReceiverAckWire
+import com.offlinepayment.ble.TeeEcdsaSigner
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Composable
 fun SendPaymentScreen(
@@ -68,10 +78,12 @@ fun SendPaymentScreen(
 	senderPublicKey: String? = null, // Sender's public key from wallet
 	senderName: String = "", // Sender's name
 	senderAccount: String = "", // Sender's bank account number
+	bleHandshakeEnabled: Boolean = false,
 	onGenerateQR: (String) -> Unit, // Callback with QR data (Base64)
 	onScanQR: (BigDecimal) -> Unit, // Navigate to scanner with amount
 	onReceiverQRScanned: (com.offlinepayment.data.PayeeQRPayload, BigDecimal) -> Unit = { _, _ -> }, // Callback when payee QR is scanned
-	scannedPayeeQRFromNav: com.offlinepayment.data.PayeeQRPayload? = null // Payee QR passed from navigation
+	scannedPayeeQRFromNav: com.offlinepayment.data.PayeeQRPayload? = null, // Payee QR passed from navigation
+	onBleLinkLostExit: () -> Unit = {}, // Leave send flow after Bluetooth required but link lost
 ) {
 	var amount by remember { mutableStateOf("") }
 	var showQRCode by remember { mutableStateOf(false) }
@@ -85,6 +97,7 @@ fun SendPaymentScreen(
 	var showPayeeConfirmation by remember { mutableStateOf(false) } // Step 2: Show payee confirmation
 	var transactionCompleted by remember { mutableStateOf(false) } // Track if transaction is completed
 	var currentTransactionPayload by remember { mutableStateOf<com.offlinepayment.data.TransactionPayloadQR?>(null) } // Store current transaction payload
+	var bleHandshakeError by remember { mutableStateOf<String?>(null) }
 	
 	// Update scannedPayeeQR when it comes from navigation
 	LaunchedEffect(scannedPayeeQRFromNav) {
@@ -144,6 +157,97 @@ fun SendPaymentScreen(
 		}
 	}
 	
+	LaunchedEffect(showQRCode, currentTransactionPayload?.txId, bleHandshakeEnabled) {
+		if (!bleHandshakeEnabled) return@LaunchedEffect
+		val payload = currentTransactionPayload ?: return@LaunchedEffect
+		if (!showQRCode) return@LaunchedEffect
+		if (transactionCompleted) return@LaunchedEffect
+		bleHandshakeError = null
+		if (!BlePaymentLink.senderBleSessionActive) {
+			bleHandshakeError = "Bluetooth disconnected. This payment cannot continue without the link."
+			return@LaunchedEffect
+		}
+		BlePaymentLink.beginAtomicBleTransaction()
+		try {
+			val (abortReason, ack) = coroutineScope {
+				val abortWait = async { BlePaymentLink.sessionAbortFlow.first() }
+				val ackWait = async {
+					withTimeoutOrNull(180_000L) {
+						BlePaymentLink.receiverAckFlow.first { wire ->
+							val canon = BlePaymentMessages.canonicalReceiverAckSignString(
+								payload.txId,
+								payload.payeeId,
+								payload.payerId,
+								payload.amount,
+								wire.ts,
+							)
+							TeeEcdsaSigner.verifySignature(
+								wire.receiverPubKeySpkiB64,
+								canon,
+								wire.signatureDer,
+							)
+						}
+					}
+				}
+				select<Pair<String?, BleReceiverAckWire?>> {
+					abortWait.onAwait { r ->
+						ackWait.cancel()
+						r to null
+					}
+					ackWait.onAwait { a ->
+						abortWait.cancel()
+						null to a
+					}
+				}
+			}
+			if (abortReason != null) {
+				bleHandshakeError = abortReason
+				showQRCode = false
+				qrBitmap = null
+				currentTransactionPayload = null
+				return@LaunchedEffect
+			}
+			if (ack == null) {
+				bleHandshakeError = "Timed out waiting for receiver Bluetooth acknowledgment."
+				showQRCode = false
+				qrBitmap = null
+				currentTransactionPayload = null
+				return@LaunchedEffect
+			}
+			val okSent = BleHandshake.senderVerifyAckAndReplyOk(context, ack, payload)
+			if (!okSent) {
+				bleHandshakeError = "Could not send Bluetooth confirmation to receiver."
+				showQRCode = false
+				qrBitmap = null
+				currentTransactionPayload = null
+				return@LaunchedEffect
+			}
+			val payee = scannedPayeeQR
+			val result = BleHandshake.persistSenderLedger(
+				context = context,
+				repository = repository,
+				payload = payload,
+				walletId = walletId,
+				scannedPayeeQR = payee,
+			)
+			result.onSuccess { transactionCompleted = true }
+			result.onFailure { e ->
+				bleHandshakeError = e.message ?: "Failed to save payment"
+				showQRCode = false
+				qrBitmap = null
+				currentTransactionPayload = null
+			}
+		} finally {
+			BlePaymentLink.endAtomicBleTransaction()
+		}
+	}
+
+	LaunchedEffect(transactionCompleted, bleHandshakeEnabled) {
+		if (transactionCompleted && bleHandshakeEnabled) {
+			BlePaymentLink.clear()
+		}
+	}
+
 	// Auto-trigger biometric authentication when ready to generate QR (if available and not authenticated)
 	LaunchedEffect(scannedPayeeQR, showPayeeConfirmation) {
 		if (isDeviceSecurityEnabled && isBiometricAvailable && !biometricAuthenticated && activity != null && scannedPayeeQR != null && !showPayeeConfirmation) {
@@ -254,6 +358,55 @@ fun SendPaymentScreen(
 			}
 
 			Spacer(modifier = Modifier.height(24.dp))
+
+			val bleLinkLost = bleHandshakeEnabled && !BlePaymentLink.senderBleSessionActive && !transactionCompleted
+			if (bleLinkLost) {
+				Card(
+					modifier = Modifier.fillMaxWidth(),
+					colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2)),
+					elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+				) {
+					Column(
+						modifier = Modifier.padding(16.dp),
+						horizontalAlignment = Alignment.CenterHorizontally,
+					) {
+						Text(
+							text = "Bluetooth connection lost",
+							fontWeight = FontWeight.Bold,
+							color = Color(0xFFDC2626),
+							fontSize = 16.sp,
+						)
+						Spacer(modifier = Modifier.height(8.dp))
+						Text(
+							text = "Payments that use Bluetooth confirmation cannot continue without an active link. Nothing new was saved after the link dropped.",
+							fontSize = 13.sp,
+							color = Color(0xFF7F1D1D),
+							textAlign = TextAlign.Center,
+						)
+						Spacer(modifier = Modifier.height(12.dp))
+						Button(
+							onClick = {
+								showQRCode = false
+								qrBitmap = null
+								amount = ""
+								biometricAuthenticated = false
+								scannedPayeeQR = null
+								transactionCompleted = false
+								currentTransactionPayload = null
+								showPayeeConfirmation = false
+								bleHandshakeError = null
+								BlePaymentLink.clear()
+								onBleLinkLostExit()
+							},
+							modifier = Modifier.fillMaxWidth(),
+							colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+						) {
+							Text("Exit to wallet", fontWeight = FontWeight.Bold)
+						}
+					}
+				}
+				Spacer(modifier = Modifier.height(16.dp))
+			}
 
 			// Step 1: Scan Payee QR Code (if not scanned yet)
 			if (scannedPayeeQR == null) {
@@ -691,6 +844,20 @@ fun SendPaymentScreen(
 							if (payeeQRValue != null && senderName.isNotEmpty()) {
 								// Convert amount to smallest currency unit (paisa for PKR)
 								val amountInPaisa = (amountValue.toDouble() * 100).toLong()
+
+								val payerPkB64 = try {
+									val tee = TeeEcdsaSigner.getInstance(context)
+									tee.getOrCreateKeyPair()
+									tee.getPublicKeySpkiBase64()
+								} catch (_: Exception) {
+									null
+								}
+
+								if (bleHandshakeEnabled && payerPkB64.isNullOrBlank()) {
+									balanceError =
+										"Secure hardware signing is required for Bluetooth payments but is not available. You cannot generate this QR."
+									return@Button
+								}
 								
 								// Create Transaction Payload QR
 								val transactionPayloadQR = com.offlinepayment.data.TransactionPayloadQR(
@@ -701,7 +868,8 @@ fun SendPaymentScreen(
 									timestamp = System.currentTimeMillis(),
 									nonce = QRCodeHelper.generateQRCodeId(),
 									payerName = senderName,
-									note = null // Optional note
+									note = null, // Optional note
+									payerPkB64 = payerPkB64,
 								)
 								
 								// Generate QR code string (Base64 encoded JSON)
@@ -727,7 +895,8 @@ fun SendPaymentScreen(
 							}
 						}
 					},
-					enabled = scannedPayeeQR != null && 
+					enabled = scannedPayeeQR != null &&
+						!bleLinkLost &&
 						!showPayeeConfirmation &&
 						amount.toBigDecimalOrNull()?.let { amountValue ->
 							// Get dynamic limit from QR
@@ -833,6 +1002,20 @@ fun SendPaymentScreen(
 							color = Color.Gray
 						)
 						Spacer(modifier = Modifier.height(16.dp))
+
+						if (bleHandshakeEnabled && BlePaymentLink.senderBleSessionActive && !transactionCompleted) {
+							Text(
+								text = "Bluetooth: waiting for receiver to scan this QR and acknowledge…",
+								fontSize = 13.sp,
+								color = Color(0xFF1D4ED8),
+								textAlign = TextAlign.Center,
+							)
+							bleHandshakeError?.let { err ->
+								Spacer(modifier = Modifier.height(8.dp))
+								Text(text = err, color = Color(0xFFDC2626), fontSize = 13.sp, textAlign = TextAlign.Center)
+							}
+							Spacer(modifier = Modifier.height(12.dp))
+						}
 						
 						if (transactionCompleted) {
 							// Show success message
@@ -863,6 +1046,7 @@ fun SendPaymentScreen(
 							Button(
 								onClick = {
 									// Reset everything for new transaction
+									if (bleHandshakeEnabled) BlePaymentLink.clear()
 									showQRCode = false
 									qrBitmap = null
 									amount = ""
@@ -871,6 +1055,7 @@ fun SendPaymentScreen(
 									transactionCompleted = false
 									currentTransactionPayload = null
 									showPayeeConfirmation = false
+									bleHandshakeError = null
 								},
 								modifier = Modifier.fillMaxWidth(),
 								colors = ButtonDefaults.buttonColors(
@@ -879,7 +1064,7 @@ fun SendPaymentScreen(
 							) {
 								Text("Start New Payment")
 							}
-						} else {
+						} else if (!bleHandshakeEnabled) {
 							// Show Sent button (sender clicks after receiver scans)
 							Text(
 								text = "After receiver scans this QR code, click 'Sent' to confirm payment and save to local storage",
@@ -982,6 +1167,7 @@ fun SendPaymentScreen(
 							Spacer(modifier = Modifier.height(8.dp))
 							OutlinedButton(
 								onClick = {
+									if (bleHandshakeEnabled) BlePaymentLink.clear()
 									showQRCode = false
 									qrBitmap = null
 									amount = ""
@@ -990,6 +1176,28 @@ fun SendPaymentScreen(
 									transactionCompleted = false
 									currentTransactionPayload = null
 									showPayeeConfirmation = false
+									bleHandshakeError = null
+								},
+								modifier = Modifier.fillMaxWidth(),
+								colors = ButtonDefaults.outlinedButtonColors(
+									contentColor = Color(0xFFEF4444)
+								)
+							) {
+								Text("Cancel Transaction")
+							}
+						} else {
+							OutlinedButton(
+								onClick = {
+									if (bleHandshakeEnabled) BlePaymentLink.clear()
+									showQRCode = false
+									qrBitmap = null
+									amount = ""
+									biometricAuthenticated = false
+									scannedPayeeQR = null
+									transactionCompleted = false
+									currentTransactionPayload = null
+									showPayeeConfirmation = false
+									bleHandshakeError = null
 								},
 								modifier = Modifier.fillMaxWidth(),
 								colors = ButtonDefaults.outlinedButtonColors(

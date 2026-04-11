@@ -72,6 +72,26 @@ data class TokenRefreshResponse(
     val token_type: String
 )
 
+data class ForgotPasswordRequest(val email: String)
+
+data class ForgotPasswordRequestResponse(
+    val msg: String,
+    val nonce_demo: String?,
+    val otp_demo: String?
+)
+
+data class ForgotPasswordConfirmRequest(
+    val email: String,
+    val otp: String,
+    val nonce: String,
+    val new_password: String,
+    val confirm_password: String
+)
+
+data class ForgotPasswordConfirmResponse(
+    val msg: String
+)
+
 data class UserInfoResponse(
     val id: Int,
     val email: String,

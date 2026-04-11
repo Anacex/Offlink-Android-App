@@ -4,6 +4,28 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import android.util.Base64
 
+/**
+ * Server-aligned password rules for signup / password reset (matches FastAPI /auth/signup).
+ */
+fun meetsSignupPasswordPolicy(password: String): Boolean {
+    if (password.length < 10) return false
+    val hasUpperCase = password.any { it.isUpperCase() }
+    val hasLowerCase = password.any { it.isLowerCase() }
+    val hasDigit = password.any { it.isDigit() }
+    val hasSpecialChar = password.any { !it.isLetterOrDigit() && !it.isWhitespace() }
+    return hasUpperCase && hasLowerCase && hasDigit && hasSpecialChar
+}
+
+fun signupPasswordRequirements(password: String): List<Pair<String, Boolean>> {
+    return listOf(
+        "At least 10 characters" to (password.length >= 10),
+        "Contains uppercase letter" to password.any { it.isUpperCase() },
+        "Contains lowercase letter" to password.any { it.isLowerCase() },
+        "Contains a number" to password.any { it.isDigit() },
+        "Contains special character" to password.any { !it.isLetterOrDigit() && !it.isWhitespace() }
+    )
+}
+
 object PasswordUtils {
     /**
      * Hash password using SHA-256 with salt for local storage

@@ -71,6 +71,7 @@ fun TransactionQRScannerScreen(
     }
     
     var scannedTransaction by remember { mutableStateOf<TransactionPayloadQR?>(null) }
+    var validationMessage by remember { mutableStateOf<String?>(null) }
     
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -156,7 +157,11 @@ fun TransactionQRScannerScreen(
                                         repository = repository,
                                         scope = scope,
                                         bleReceiverMode = bleReceiverMode,
+                                        onValidationError = { message ->
+                                            validationMessage = message
+                                        },
                                     ) { transaction ->
+                                        validationMessage = null
                                         scannedTransaction = transaction
                                         onScanResult(transaction)
                                     }
@@ -211,6 +216,22 @@ fun TransactionQRScannerScreen(
                     )
                 }
             }
+            validationMessage?.let { message ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFE4E6)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = message,
+                        modifier = Modifier.padding(16.dp),
+                        color = Color(0xFFB91C1C),
+                        fontSize = 13.sp
+                    )
+                }
+            }
         }
     }
 }
@@ -222,6 +243,7 @@ private fun processImageProxyForTransaction(
     repository: WalletRepository,
     scope: kotlinx.coroutines.CoroutineScope,
     bleReceiverMode: Boolean,
+    onValidationError: (String) -> Unit,
     onResult: (TransactionPayloadQR) -> Unit,
 ) {
     val mediaImage = imageProxy.image
@@ -285,6 +307,9 @@ private fun processImageProxyForTransaction(
                                         }
                                     } else {
                                         scope.launch {
+                                            onValidationError(
+                                                "Bluetooth session not active. Open Receive payment, stay connected, then scan again."
+                                            )
                                             Toast.makeText(
                                                 context,
                                                 "Offlink requires an active Bluetooth session before a payment can be recorded. Open Receive payment, stay connected, then scan again.",
@@ -292,6 +317,8 @@ private fun processImageProxyForTransaction(
                                             ).show()
                                         }
                                     }
+                                } else {
+                                    onValidationError(validation.message)
                                 }
                             }
                         }

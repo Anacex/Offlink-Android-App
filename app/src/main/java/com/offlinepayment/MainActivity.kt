@@ -617,66 +617,24 @@ fun MainAppContent(
                     ),
                 ) { entry ->
                     val bleReceiverMode = entry.arguments?.getString("bleHost") == "1"
-                    val context = androidx.compose.ui.platform.LocalContext.current
-                    val session = com.offlinepayment.data.session.AuthSessionManager.currentSession()
-                    val database = com.offlinepayment.data.local.AppDatabase.getDatabase(context)
-                    // Prefer the live session userId; fall back to cached DB only if needed.
-                    var currentUserIdInt by remember { mutableStateOf<Int?>(null) }
+                    val currentUserId = finalUserId.toString()
                     
-                    LaunchedEffect(session?.userId, session?.userEmail) {
-                        currentUserIdInt = session?.userId ?: session?.userEmail?.let { email ->
-                            database.offlineUserDao().getUserByEmail(email)?.userId
-                        }
-                    }
-                    
-                    val currentUserId = currentUserIdInt?.toString()
-                    
-                    if (currentUserId != null) {
-                        com.offlinepayment.ui.qr.TransactionQRScannerScreen(
-                            currentPayeeId = currentUserId,
-                            bleReceiverMode = bleReceiverMode,
-                            onScanResult = { payload ->
-                                // Store scanned transaction payload in shared state (more reliable than savedStateHandle)
-                                scannedTransactionPayloadShared = payload
-                                // Navigate with small delay to ensure state propagation
-                                scope.launch {
-                                    kotlinx.coroutines.delay(100)
-                                    navController.navigate("transaction-received")
-                                }
-                            },
-                            onBack = {
-                                navController.popBackStack()
+                    com.offlinepayment.ui.qr.TransactionQRScannerScreen(
+                        currentPayeeId = currentUserId,
+                        bleReceiverMode = bleReceiverMode,
+                        onScanResult = { payload ->
+                            // Store scanned transaction payload in shared state (more reliable than savedStateHandle)
+                            scannedTransactionPayloadShared = payload
+                            // Navigate with small delay to ensure state propagation
+                            scope.launch {
+                                kotlinx.coroutines.delay(100)
+                                navController.navigate("transaction-received")
                             }
-                        )
-                    } else {
-                        // User ID not available - show error and navigate back
-                        androidx.compose.material3.Surface {
-                            androidx.compose.foundation.layout.Column(
-                                modifier = androidx.compose.ui.Modifier
-                                    .fillMaxSize()
-                                    .padding(16.dp),
-                                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-                                verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
-                            ) {
-                                androidx.compose.material3.Text(
-                                    text = "Unable to retrieve user information",
-                                    style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
-                                    color = androidx.compose.ui.graphics.Color.Red
-                                )
-                                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(16.dp))
-                                androidx.compose.material3.Text(
-                                    text = "Please ensure you are logged in and try again.",
-                                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium
-                                )
-                                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(24.dp))
-                                androidx.compose.material3.Button(
-                                    onClick = { navController.popBackStack() }
-                                ) {
-                                    androidx.compose.material3.Text("Go Back")
-                                }
-                            }
+                        },
+                        onBack = {
+                            navController.popBackStack()
                         }
-                    }
+                    )
                 }
                 composable("transaction-received") {
                     // Get scanned transaction payload from shared state (more reliable than savedStateHandle)

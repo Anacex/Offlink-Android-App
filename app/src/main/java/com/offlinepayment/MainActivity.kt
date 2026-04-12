@@ -620,11 +620,11 @@ fun MainAppContent(
                     val context = androidx.compose.ui.platform.LocalContext.current
                     val session = com.offlinepayment.data.session.AuthSessionManager.currentSession()
                     val database = com.offlinepayment.data.local.AppDatabase.getDatabase(context)
-                    // Get userId as Int first, then convert to String for currentPayeeId parameter
+                    // Prefer the live session userId; fall back to cached DB only if needed.
                     var currentUserIdInt by remember { mutableStateOf<Int?>(null) }
                     
-                    LaunchedEffect(session?.userEmail) {
-                        currentUserIdInt = session?.userEmail?.let { email ->
+                    LaunchedEffect(session?.userId, session?.userEmail) {
+                        currentUserIdInt = session?.userId ?: session?.userEmail?.let { email ->
                             database.offlineUserDao().getUserByEmail(email)?.userId
                         }
                     }

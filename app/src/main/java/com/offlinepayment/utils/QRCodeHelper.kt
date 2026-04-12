@@ -486,8 +486,11 @@ object QRCodeHelper {
         
         // Timestamp is within reasonable range (e.g., ±2 minutes)
         val currentTime = System.currentTimeMillis()
-        val twoMinutesInMillis = 2 * 60 * 1000L
-        if (payload.timestamp < currentTime - twoMinutesInMillis || payload.timestamp > currentTime + twoMinutesInMillis) {
+        val allowedClockSkewMillis = 10 * 60 * 1000L
+        if (
+            payload.timestamp < currentTime - allowedClockSkewMillis ||
+            payload.timestamp > currentTime + allowedClockSkewMillis
+        ) {
             return ValidationResult(false, "Transaction timestamp is outside acceptable range.")
         }
         

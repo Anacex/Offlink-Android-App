@@ -320,12 +320,7 @@ fun MainAppContent(
                     if (!authUiState.isEmailVerified) {
                         authViewModel.showEmailVerificationDialog()
                     } else {
-                        when (val a = BleOfflinkEligibility.assessSender(context)) {
-                            is BleOfflinkAssessment.Blocked ->
-                                Toast.makeText(context, a.userMessage, Toast.LENGTH_LONG).show()
-                            is BleOfflinkAssessment.Ok ->
-                                navController.navigate("ble-sender-scan")
-                        }
+                        navController.navigate("ble-sender-scan")
                     }
                 },
                 onReceivePaymentFromDrawer = {
@@ -333,12 +328,7 @@ fun MainAppContent(
                     if (!authUiState.isEmailVerified) {
                         authViewModel.showEmailVerificationDialog()
                     } else {
-                        when (val a = BleOfflinkEligibility.assessReceiver(context)) {
-                            is BleOfflinkAssessment.Blocked ->
-                                Toast.makeText(context, a.userMessage, Toast.LENGTH_LONG).show()
-                            is BleOfflinkAssessment.Ok ->
-                                navController.navigate("ble-receiver-ready")
-                        }
+                        navController.navigate("ble-receiver-ready")
                     }
                 },
                 onLogout = onLogout
@@ -388,24 +378,14 @@ fun MainAppContent(
                             if (!authUiState.isEmailVerified) {
                                 authViewModel.showEmailVerificationDialog()
                             } else {
-                                when (val a = BleOfflinkEligibility.assessSender(walletContext)) {
-                                    is BleOfflinkAssessment.Blocked ->
-                                        Toast.makeText(walletContext, a.userMessage, Toast.LENGTH_LONG).show()
-                                    is BleOfflinkAssessment.Ok ->
-                                        navController.navigate("ble-sender-scan")
-                                }
+                                navController.navigate("ble-sender-scan")
                             }
                         },
                         onReceivePaymentClick = {
                             if (!authUiState.isEmailVerified) {
                                 authViewModel.showEmailVerificationDialog()
                             } else {
-                                when (val a = BleOfflinkEligibility.assessReceiver(walletContext)) {
-                                    is BleOfflinkAssessment.Blocked ->
-                                        Toast.makeText(walletContext, a.userMessage, Toast.LENGTH_LONG).show()
-                                    is BleOfflinkAssessment.Ok ->
-                                        navController.navigate("ble-receiver-ready")
-                                }
+                                navController.navigate("ble-receiver-ready")
                             }
                         },
                         onViewTransactionsClick = { navController.navigate("transactions") },
@@ -1016,12 +996,7 @@ fun MainAppContent(
                             userName = userName,
                             balance = userBalance,
                             onScanQR = {
-                                when (val a = BleOfflinkEligibility.assessReceiver(context)) {
-                                    is BleOfflinkAssessment.Blocked ->
-                                        Toast.makeText(context, a.userMessage, Toast.LENGTH_LONG).show()
-                                    is BleOfflinkAssessment.Ok ->
-                                        navController.navigate("ble-receiver-ready")
-                                }
+                                navController.navigate("ble-receiver-ready")
                             }
                         )
                     }

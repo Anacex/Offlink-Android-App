@@ -24,6 +24,9 @@ object BleOfflinkEligibility {
         basicBluetooth(app)?.let { return it }
         val adapter = (app.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
             ?: return BleOfflinkAssessment.Blocked("Bluetooth is not available on this device.")
+        if (!BlePermissionHelper.hasAll(app)) {
+            return BleOfflinkAssessment.Ok
+        }
         if (!adapter.isEnabled) {
             return BleOfflinkAssessment.Blocked("Turn on Bluetooth to send with Bluetooth confirmation.")
         }
@@ -43,6 +46,9 @@ object BleOfflinkEligibility {
         basicBluetooth(app)?.let { return it }
         val adapter = (app.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
             ?: return BleOfflinkAssessment.Blocked("Bluetooth is not available on this device.")
+        if (!BlePermissionHelper.hasAll(app)) {
+            return BleOfflinkAssessment.Ok
+        }
         if (!adapter.isEnabled) {
             return BleOfflinkAssessment.Blocked("Turn on Bluetooth to receive with Bluetooth confirmation.")
         }

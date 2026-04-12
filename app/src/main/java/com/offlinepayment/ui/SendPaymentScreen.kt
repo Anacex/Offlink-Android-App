@@ -914,16 +914,15 @@ fun SendPaymentScreen(
 									payerPkB64 = payerPkB64,
 								)
 								
-								// Generate QR code string (Base64 encoded JSON)
-								// Convert TransactionPayloadQR to JSON, then Base64 encode
+								// Use compact raw JSON instead of Base64-wrapping it.
+								// Base64 inflates the payload and makes the on-screen QR denser and harder to scan.
 								val moshi = com.squareup.moshi.Moshi.Builder()
 									.add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
 									.build()
 								val adapter = moshi.adapter(com.offlinepayment.data.TransactionPayloadQR::class.java)
-								val json = adapter.toJson(transactionPayloadQR)
-								val qrData = android.util.Base64.encodeToString(json.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
+								val qrData = adapter.toJson(transactionPayloadQR)
 								
-								qrBitmap = QRCodeHelper.generateQRCodeBitmap(qrData, 400, 400)
+								qrBitmap = QRCodeHelper.generateQRCodeBitmap(qrData, 800, 800)
 								showQRCode = true
 								currentTransactionPayload = transactionPayloadQR
 								transactionCompleted = false
@@ -1027,7 +1026,7 @@ fun SendPaymentScreen(
 						Image(
 							bitmap = qrBitmap!!.asImageBitmap(),
 							contentDescription = "Transaction QR Code",
-							modifier = Modifier.size(250.dp)
+							modifier = Modifier.size(320.dp)
 						)
 						Spacer(modifier = Modifier.height(16.dp))
 						Text(

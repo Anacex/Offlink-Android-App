@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import com.offlinepayment.ble.BleHandshake
@@ -72,6 +73,7 @@ fun TransactionQRScannerScreen(
     
     var scannedTransaction by remember { mutableStateOf<TransactionPayloadQR?>(null) }
     var validationMessage by remember { mutableStateOf<String?>(null) }
+    var scanStatus by remember { mutableStateOf("Waiting for QR…") }
     
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -157,10 +159,14 @@ fun TransactionQRScannerScreen(
                                         repository = repository,
                                         scope = scope,
                                         bleReceiverMode = bleReceiverMode,
+                                        onScanStatus = { status ->
+                                            scanStatus = status
+                                        },
                                         onValidationError = { message ->
                                             validationMessage = message
                                         },
                                     ) { transaction ->
+                                        scanStatus = "QR parsed and accepted."
                                         validationMessage = null
                                         scannedTransaction = transaction
                                         onScanResult(transaction)
@@ -216,6 +222,20 @@ fun TransactionQRScannerScreen(
                     )
                 }
             }
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.9f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(
+                    text = scanStatus,
+                    modifier = Modifier.padding(16.dp),
+                    color = Color(0xFF1F2937),
+                    fontSize = 13.sp
+                )
+            }
             validationMessage?.let { message ->
                 Card(
                     modifier = Modifier
@@ -243,6 +263,7 @@ private fun processImageProxyForTransaction(
     repository: WalletRepository,
     scope: kotlinx.coroutines.CoroutineScope,
     bleReceiverMode: Boolean,
+    onScanStatus: (String) -> Unit,
     onValidationError: (String) -> Unit,
     onResult: (TransactionPayloadQR) -> Unit,
 ) {
@@ -253,12 +274,20 @@ private fun processImageProxyForTransaction(
             imageProxy.imageInfo.rotationDegrees
         )
         
-        val scanner = BarcodeScanning.getClient()
+        val scanner = BarcodeScanning.getClient(
+            BarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                .build()
+        )
         scanner.process(image)
             .addOnSuccessListener { barcodes ->
+                if (barcodes.isEmpty()) {
+                    onScanStatus("Waiting for QR…")
+                }
                 for (barcode in barcodes) {
                     when (barcode.valueType) {
                         Barcode.TYPE_TEXT, Barcode.TYPE_URL -> {
+                            onScanStatus("QR detected. Parsing payload…")
                             val qrData = barcode.rawValue ?: ""
                             val transactionPayload = QRCodeHelper.parseTransactionPayloadQR(qrData)
                             if (transactionPayload != null) {
@@ -268,6 +297,7 @@ private fun processImageProxyForTransaction(
                                     currentPayeeId = currentPayeeId
                                 )
                                 if (validation.isValid) {
+                                    onScanStatus("Payload valid. Waiting for BLE confirmation…")
                                     val useBle = bleReceiverMode && BlePaymentLink.server != null
                                     if (useBle) {
                                         scope.launch {
@@ -318,8 +348,11 @@ private fun processImageProxyForTransaction(
                                         }
                                     }
                                 } else {
+                                    onScanStatus("QR parsed but validation failed.")
                                     onValidationError(validation.message)
                                 }
+                            } else {
+                                onScanStatus("QR detected but payload could not be parsed.")
                             }
                         }
                     }

@@ -67,6 +67,10 @@ interface LocalTransactionDao {
     
     @Query("SELECT * FROM local_transactions WHERE payerId = :userId OR payeeId = :userId ORDER BY createdAtDevice DESC")
     fun observeTransactionsForUser(userId: String): Flow<List<LocalTransaction>>
+
+    /** Pending rows for this wallet (sender or receiver offline rows both use [LocalTransaction.senderWalletId]). */
+    @Query("SELECT COUNT(*) FROM local_transactions WHERE status = 'pending' AND senderWalletId = :walletId")
+    suspend fun countPendingForWallet(walletId: Int): Int
     
     @Query("SELECT * FROM local_transactions WHERE direction = :direction ORDER BY createdAtDevice DESC")
     suspend fun getTransactionsByDirection(direction: String): List<LocalTransaction>

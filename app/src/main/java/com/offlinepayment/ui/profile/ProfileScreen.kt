@@ -31,8 +31,6 @@ import androidx.compose.ui.platform.LocalContext
 @Composable
 fun ProfileScreen(
     onViewTransactions: () -> Unit,
-    onViewQRCode: () -> Unit,
-    onSettings: () -> Unit,
     onLogout: () -> Unit
 ) {
     val context = LocalContext.current
@@ -202,13 +200,6 @@ fun ProfileScreen(
                     title = "Transaction History",
                     subtitle = "View your payment history",
                     onClick = onViewTransactions
-                )
-
-                ProfileMenuItem(
-                    icon = Icons.Default.Settings,
-                    title = "My QR Code",
-                    subtitle = "View and share your payment QR code",
-                    onClick = onViewQRCode
                 )
 
                 Divider(modifier = Modifier.padding(horizontal = 16.dp))

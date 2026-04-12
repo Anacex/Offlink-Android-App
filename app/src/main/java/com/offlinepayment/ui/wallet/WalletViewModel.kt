@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.offlinepayment.data.WalletDto
 import com.offlinepayment.data.WalletTransferRequest
 import com.offlinepayment.data.SyncedOfflineTransaction
+import com.offlinepayment.data.UnifiedOfflineHistoryItem
 import com.offlinepayment.data.network.ApiClient
 import com.offlinepayment.data.repository.WalletRepository
 import com.offlinepayment.data.session.AuthSessionManager
@@ -29,6 +30,8 @@ data class WalletUiState(
     val isLoadingHistory: Boolean = false,
     val syncedTransactions: List<SyncedOfflineTransaction> = emptyList(),
     val isLoadingSyncedTransactions: Boolean = false,
+    val unifiedServerHistory: List<UnifiedOfflineHistoryItem> = emptyList(),
+    val isLoadingUnifiedServerHistory: Boolean = false,
     val isCreatingWallet: Boolean = false,
     val walletCreationOtp: String? = null,
     val walletCreationBankAccount: String? = null
@@ -62,6 +65,7 @@ class WalletViewModel(
     fun onSyncCompleted() {
         refreshWallets()
         getSyncedTransactions() // Refresh synced transactions after sync
+        loadUnifiedServerHistory(limit = 10, silentError = true)
     }
 
     private val _uiState = MutableStateFlow(WalletUiState())
@@ -301,6 +305,42 @@ class WalletViewModel(
                             errorMessage = error.message
                         )
                     }
+                )
+            }
+        }
+    }
+
+    /**
+     * @param silentError When true, failures do not set [WalletUiState.errorMessage] (avoids polluting the wallet home banner when opening History).
+     */
+    fun loadUnifiedServerHistory(limit: Int = 10, silentError: Boolean = false) {
+        if (AuthSessionManager.currentSession() == null) {
+            _uiState.update { it.copy(unifiedServerHistory = emptyList()) }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingUnifiedServerHistory = true) }
+            val result = repository.getUnifiedOfflineHistory(limit)
+            _uiState.update {
+                result.fold(
+                    onSuccess = { rows ->
+                        it.copy(
+                            isLoadingUnifiedServerHistory = false,
+                            unifiedServerHistory = rows,
+                            errorMessage = if (silentError) it.errorMessage else null,
+                        )
+                    },
+                    onFailure = { error ->
+                        it.copy(
+                            isLoadingUnifiedServerHistory = false,
+                            unifiedServerHistory = emptyList(),
+                            errorMessage = if (silentError) {
+                                it.errorMessage
+                            } else {
+                                ErrorUtils.cleanErrorMessageForDisplay(error.message)
+                            },
+                        )
+                    },
                 )
             }
         }

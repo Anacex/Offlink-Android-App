@@ -16,6 +16,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -23,11 +24,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
 import com.offlinepayment.data.WalletTransferResponse
 import com.offlinepayment.data.SyncedOfflineTransaction
+import com.offlinepayment.data.UnifiedOfflineHistoryItem
 import com.offlinepayment.utils.CurrencyUtils
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.time.Instant
+import java.math.BigDecimal
 
 data class OfflineTransaction(
 	val id: String,
@@ -41,10 +44,77 @@ fun TransactionListScreen(
 	transfers: List<WalletTransferResponse>,
 	localTransactions: List<com.offlinepayment.data.local.LocalTransaction> = emptyList(),
 	syncedTransactions: List<SyncedOfflineTransaction> = emptyList(),
+	unifiedServerHistory: List<UnifiedOfflineHistoryItem> = emptyList(),
 	isLoading: Boolean = false,
-	onTransactionClick: (WalletTransferResponse) -> Unit = {}
+	/** When true: online shows last server unified offline payments only; offline shows last 10 local ledger rows. */
+	homeHistoryMode: Boolean = false,
+	isOnline: Boolean = true,
+	onTransactionClick: (WalletTransferResponse) -> Unit = {},
 ) {
-	if (isLoading) {
+	if (homeHistoryMode) {
+		val localLast10 = remember(localTransactions) {
+			localTransactions.sortedByDescending { it.createdAtDevice }.take(10)
+		}
+		when {
+			isOnline && isLoading -> {
+				Column(
+					modifier = Modifier.fillMaxSize(),
+					horizontalAlignment = Alignment.CenterHorizontally,
+					verticalArrangement = Arrangement.Center
+				) {
+					CircularProgressIndicator()
+				}
+			}
+			isOnline && unifiedServerHistory.isEmpty() -> {
+				Column(
+					modifier = Modifier.fillMaxSize(),
+					horizontalAlignment = Alignment.CenterHorizontally,
+					verticalArrangement = Arrangement.Center
+				) {
+					Text(
+						text = "No recent payments on the server yet",
+						style = MaterialTheme.typography.bodyLarge,
+						color = MaterialTheme.colorScheme.onSurfaceVariant
+					)
+				}
+			}
+			isOnline -> {
+				LazyColumn(
+					modifier = Modifier.fillMaxSize(),
+					contentPadding = PaddingValues(16.dp),
+					verticalArrangement = Arrangement.spacedBy(12.dp)
+				) {
+					items(unifiedServerHistory.take(10), key = { it.nonce }) { row ->
+						HomeUnifiedHistoryCard(row)
+					}
+				}
+			}
+			localLast10.isEmpty() -> {
+				Column(
+					modifier = Modifier.fillMaxSize(),
+					horizontalAlignment = Alignment.CenterHorizontally,
+					verticalArrangement = Arrangement.Center
+				) {
+					Text(
+						text = "No offline transactions stored on this device",
+						style = MaterialTheme.typography.bodyLarge,
+						color = MaterialTheme.colorScheme.onSurfaceVariant
+					)
+				}
+			}
+			else -> {
+				LazyColumn(
+					modifier = Modifier.fillMaxSize(),
+					contentPadding = PaddingValues(16.dp),
+					verticalArrangement = Arrangement.spacedBy(12.dp)
+				) {
+					items(localLast10, key = { it.txId }) { localTx ->
+						HomeLocalHistoryCard(localTx)
+					}
+				}
+			}
+		}
+	} else if (isLoading) {
 		Column(
 			modifier = Modifier.fillMaxSize(),
 			horizontalAlignment = Alignment.CenterHorizontally,
@@ -52,7 +122,12 @@ fun TransactionListScreen(
 		) {
 			CircularProgressIndicator()
 		}
-	} else if (transfers.isEmpty() && localTransactions.isEmpty() && syncedTransactions.isEmpty()) {
+	} else if (
+		transfers.isEmpty() &&
+			localTransactions.isEmpty() &&
+			syncedTransactions.isEmpty() &&
+			unifiedServerHistory.isEmpty()
+	) {
 		Column(
 			modifier = Modifier.fillMaxSize(),
 			horizontalAlignment = Alignment.CenterHorizontally,
@@ -128,8 +203,74 @@ fun TransactionListScreen(
 					}
 				}
 			}
+
+			items(unifiedServerHistory, key = { it.nonce }) { row ->
+				Card(
+					modifier = Modifier.fillMaxWidth(),
+					colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+					elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+				) {
+					Column(modifier = Modifier.padding(16.dp)) {
+						Row(modifier = Modifier.fillMaxWidth()) {
+							Text(
+								text = row.senderSyncedAtServer?.let { formatTimestampFromISO(it) }
+									?: row.receiverSyncedAtServer?.let { formatTimestampFromISO(it) }
+									?: "—",
+								style = MaterialTheme.typography.labelMedium,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+							)
+							Text(
+								text = when (row.perspective) {
+									"sent" -> " • You sent"
+									"received" -> " • You received"
+									else -> " • ${row.perspective}"
+								},
+								style = MaterialTheme.typography.labelMedium,
+								color = if (row.perspective == "sent") Color(0xFFDC2626) else Color(0xFF059669),
+								modifier = Modifier.padding(start = 8.dp),
+							)
+						}
+						Row(
+							modifier = Modifier
+								.fillMaxWidth()
+								.padding(top = 6.dp),
+							horizontalArrangement = Arrangement.SpaceBetween,
+						) {
+							Column(modifier = Modifier.weight(1f)) {
+								Text(
+									text = "Server offline payment",
+									style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+									color = MaterialTheme.colorScheme.onSurface,
+								)
+								Text(
+									text = buildString {
+										append("Coverage: ${row.syncCoverage.replace("_", " ")}")
+										row.firstSyncParty?.let { append(" • First sync: $it") }
+									},
+									style = MaterialTheme.typography.bodySmall,
+									color = MaterialTheme.colorScheme.onSurfaceVariant,
+									modifier = Modifier.padding(top = 4.dp),
+								)
+								Text(
+									text = "Nonce ${row.nonce.take(12)}…${row.txId?.let { " • tx $it" } ?: ""}",
+									style = MaterialTheme.typography.bodySmall,
+									color = MaterialTheme.colorScheme.onSurfaceVariant,
+									modifier = Modifier.padding(top = 2.dp),
+								)
+							}
+							Text(
+								text = CurrencyUtils.formatPkr(
+									runCatching { BigDecimal(row.amount).toDouble() }.getOrDefault(0.0),
+								),
+								style = MaterialTheme.typography.titleMedium,
+								color = if (row.perspective == "sent") Color(0xFFDC2626) else Color(0xFF059669),
+							)
+						}
+					}
+				}
+			}
 			
-			// Show synced offline transactions (from server)
+			// Legacy: sender-only list from GET /offline-transactions/ (kept for older caches)
 			items(syncedTransactions, key = { it.id.toString() }) { syncedTx ->
 				Card(
 					modifier = Modifier.fillMaxWidth(),
@@ -234,6 +375,137 @@ fun TransactionListScreen(
 						}
 					}
 				}
+			}
+		}
+	}
+}
+
+@Composable
+private fun HomeUnifiedHistoryCard(row: UnifiedOfflineHistoryItem) {
+	Card(
+		modifier = Modifier.fillMaxWidth(),
+		colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+		elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+	) {
+		Column(modifier = Modifier.padding(16.dp)) {
+			Row(modifier = Modifier.fillMaxWidth()) {
+				Text(
+					text = row.senderSyncedAtServer?.let { formatTimestampFromISO(it) }
+						?: row.receiverSyncedAtServer?.let { formatTimestampFromISO(it) }
+						?: "—",
+					style = MaterialTheme.typography.labelMedium,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				Text(
+					text = when (row.perspective) {
+						"sent" -> " • You sent"
+						"received" -> " • You received"
+						else -> " • ${row.perspective}"
+					},
+					style = MaterialTheme.typography.labelMedium,
+					color = if (row.perspective == "sent") Color(0xFFDC2626) else Color(0xFF059669),
+					modifier = Modifier.padding(start = 8.dp),
+				)
+			}
+			Row(
+				modifier = Modifier
+					.fillMaxWidth()
+					.padding(top = 6.dp),
+				horizontalArrangement = Arrangement.SpaceBetween,
+			) {
+				Column(modifier = Modifier.weight(1f)) {
+					Text(
+						text = "Server offline payment",
+						style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+						color = MaterialTheme.colorScheme.onSurface,
+					)
+					Text(
+						text = buildString {
+							append("Coverage: ${row.syncCoverage.replace("_", " ")}")
+							row.firstSyncParty?.let { append(" • First sync: $it") }
+						},
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						modifier = Modifier.padding(top = 4.dp),
+					)
+					Text(
+						text = "Nonce ${row.nonce.take(12)}…${row.txId?.let { " • tx $it" } ?: ""}",
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						modifier = Modifier.padding(top = 2.dp),
+					)
+				}
+				Text(
+					text = CurrencyUtils.formatPkr(
+						runCatching { BigDecimal(row.amount).toDouble() }.getOrDefault(0.0),
+					),
+					style = MaterialTheme.typography.titleMedium,
+					color = if (row.perspective == "sent") Color(0xFFDC2626) else Color(0xFF059669),
+				)
+			}
+		}
+	}
+}
+
+@Composable
+private fun HomeLocalHistoryCard(localTx: com.offlinepayment.data.local.LocalTransaction) {
+	Card(
+		modifier = Modifier.fillMaxWidth(),
+		colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+		elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+	) {
+		Column(modifier = Modifier.padding(16.dp)) {
+			Row(modifier = Modifier.fillMaxWidth()) {
+				Text(
+					text = formatTimestampFromMillis(localTx.createdAtDevice),
+					style = MaterialTheme.typography.labelMedium,
+					color = MaterialTheme.colorScheme.onSurfaceVariant
+				)
+				Text(
+					text = " • ${localTx.direction ?: localTx.status}",
+					style = MaterialTheme.typography.labelMedium,
+					color = when {
+						localTx.direction == "SENT" -> Color(0xFFDC2626)
+						localTx.direction == "RECEIVED" -> Color(0xFF059669)
+						localTx.status == "failed" -> Color(0xFFDC2626)
+						else -> Color(0xFF6B7280)
+					},
+					modifier = Modifier.padding(start = 8.dp)
+				)
+			}
+			Row(
+				modifier = Modifier
+					.fillMaxWidth()
+					.padding(top = 6.dp),
+				horizontalArrangement = Arrangement.SpaceBetween
+			) {
+				Column {
+					Text(
+						text = if (localTx.direction == "SENT") {
+							"To: ${localTx.payeeId ?: "Unknown"}"
+						} else {
+							"From: ${localTx.payerId ?: "Unknown"}"
+						},
+						style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+						color = MaterialTheme.colorScheme.onSurface
+					)
+					val statusNote = when (localTx.status) {
+						"pending" -> "Pending sync"
+						"synced", "confirmed" -> "Synced"
+						else -> localTx.status
+					}
+					Text(
+						text = "TxID: ${localTx.txId.take(8)}... • $statusNote",
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						modifier = Modifier.padding(top = 4.dp)
+					)
+				}
+				Text(
+					text = CurrencyUtils.formatPkr(java.math.BigDecimal(localTx.amount).toDouble()),
+					style = MaterialTheme.typography.titleMedium,
+					color = if (localTx.direction == "SENT") Color(0xFFDC2626) else Color(0xFF059669)
+				)
 			}
 		}
 	}

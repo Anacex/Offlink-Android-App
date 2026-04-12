@@ -1,12 +1,14 @@
 package com.offlinepayment.ble
 
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
 /**
  * Holds active BLE managers for the payment handshake (survives short navigation).
- * Cleared when user disconnects, aborts, or completes flow.
+ * Tear down via [clear] only from explicit user actions (disconnect / cancel / exit), not automatically
+ * after a successful transaction, so the GATT link is not dropped mid-handshake on the peer.
  */
 object BlePaymentLink {
     @Volatile
@@ -41,14 +43,26 @@ object BlePaymentLink {
     /** Parsed receiver ack; transaction binding is verified locally against QR payload + signatures. */
     val receiverAckFlow = MutableSharedFlow<BleReceiverAckWire>(extraBufferCapacity = 8)
 
-    val senderOkFlow = MutableSharedFlow<BleSenderOkWire>(extraBufferCapacity = 8)
+    /**
+     * Sender OK from GATT write. A conflated channel avoids dropping the only OK when it arrives
+     * before a SharedFlow collector is subscribed (tryEmit with no subscribers can fail / race).
+     */
+    private val senderOkChannel = Channel<BleSenderOkWire>(capacity = Channel.CONFLATED)
 
     fun publishReceiverAck(msg: BleReceiverAckWire) {
         receiverAckFlow.tryEmit(msg)
     }
 
+    fun drainSenderOkChannel() {
+        while (senderOkChannel.tryReceive().isSuccess) {
+            // drop stale OKs from a previous attempt
+        }
+    }
+
+    suspend fun receiveSenderOkWire(): BleSenderOkWire = senderOkChannel.receive()
+
     fun publishSenderOk(msg: BleSenderOkWire) {
-        senderOkFlow.tryEmit(msg)
+        senderOkChannel.trySend(msg)
     }
 
     fun beginAtomicBleTransaction() {
@@ -89,6 +103,7 @@ object BlePaymentLink {
 
     fun clear() {
         endAtomicBleTransaction()
+        drainSenderOkChannel()
         server?.stop()
         server = null
         client?.disconnect()

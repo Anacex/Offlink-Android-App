@@ -84,6 +84,7 @@ fun SendPaymentScreen(
 	onReceiverQRScanned: (com.offlinepayment.data.PayeeQRPayload, BigDecimal) -> Unit = { _, _ -> }, // Callback when payee QR is scanned
 	scannedPayeeQRFromNav: com.offlinepayment.data.PayeeQRPayload? = null, // Payee QR passed from navigation
 	onBleLinkLostExit: () -> Unit = {}, // Leave send flow after Bluetooth required but link lost
+	onOfflineLedgerUpdated: () -> Unit = {}, // Reload wallet balances in ViewModel after a successful local debit
 ) {
 	var amount by remember { mutableStateOf("") }
 	var showQRCode by remember { mutableStateOf(false) }
@@ -230,9 +231,18 @@ fun SendPaymentScreen(
 				walletId = walletId,
 				scannedPayeeQR = payee,
 			)
-			result.onSuccess { transactionCompleted = true }
+			result.onSuccess {
+				transactionCompleted = true
+				onOfflineLedgerUpdated()
+			}
 			result.onFailure { e ->
-				bleHandshakeError = e.message ?: "Failed to save payment"
+				bleHandshakeError = buildString {
+					append(e.message ?: "Failed to save payment")
+					append(
+						" You can try this payment again while Bluetooth is still linked; " +
+							"your offline wallet is only debited once per transaction id after a successful save.",
+					)
+				}
 				showQRCode = false
 				qrBitmap = null
 				currentTransactionPayload = null
@@ -242,11 +252,8 @@ fun SendPaymentScreen(
 		}
 	}
 
-	LaunchedEffect(transactionCompleted) {
-		if (transactionCompleted) {
-			BlePaymentLink.clear()
-		}
-	}
+	// Do not call BlePaymentLink.clear() here: tearing down GATT would drop the link while the receiver
+	// may still be finishing UI. Bluetooth disconnects only when the user taps Disconnect / Start new payment.
 
 	// Auto-trigger biometric authentication when ready to generate QR (if available and not authenticated)
 	LaunchedEffect(scannedPayeeQR, showPayeeConfirmation) {
@@ -1082,6 +1089,13 @@ fun SendPaymentScreen(
 										color = Color(0xFF6B7280),
 										textAlign = TextAlign.Center
 									)
+									Spacer(modifier = Modifier.height(8.dp))
+									Text(
+										text = "When you are done, disconnect Bluetooth below so the receiver can close their session too.",
+										fontSize = 12.sp,
+										color = Color(0xFF6B7280),
+										textAlign = TextAlign.Center
+									)
 								}
 							}
 							Spacer(modifier = Modifier.height(16.dp))
@@ -1103,7 +1117,7 @@ fun SendPaymentScreen(
 									containerColor = Color(0xFF059669)
 								)
 							) {
-								Text("Start New Payment")
+								Text("Disconnect Bluetooth & new payment")
 							}
 						} else {
 							OutlinedButton(

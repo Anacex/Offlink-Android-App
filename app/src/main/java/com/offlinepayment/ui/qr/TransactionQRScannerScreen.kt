@@ -35,13 +35,68 @@ import com.offlinepayment.data.TransactionPayloadQR
 import com.offlinepayment.data.repository.WalletRepository
 import com.offlinepayment.data.network.ApiClient
 import com.offlinepayment.utils.QRCodeHelper
+import java.util.concurrent.Executor
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import android.widget.Toast
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
+
+/** ML Kit success runs here so the main thread is not flooded on every camera frame. */
+private val transactionQrBarcodeExecutor: Executor by lazy {
+    Executors.newSingleThreadExecutor { r ->
+        Thread(r, "tx-qr-barcode-ml").apply { isDaemon = true }
+    }
+}
+
+/** Only one BLE receive handshake at a time (ML Kit fires many times per second on a stable QR). */
+private object TransactionQrBleReceiveGuard {
+    private val inFlight = AtomicBoolean(false)
+    fun tryAcquire(): Boolean = inFlight.compareAndSet(false, true)
+    fun release() {
+        inFlight.set(false)
+    }
+}
+
+/**
+ * After a BLE error/disconnect, ML Kit still sees the same QR every frame and would otherwise
+ * restart the handshake immediately in a tight loop (Toast spam + Logcat flood).
+ */
+private object TransactionQrBleReceiveCooldown {
+    private val lastFailureAtMs = AtomicLong(0L)
+    private const val COOLDOWN_MS = 5_000L
+
+    fun isInCooldown(): Boolean {
+        val t = lastFailureAtMs.get()
+        if (t == 0L) return false
+        return System.currentTimeMillis() - t < COOLDOWN_MS
+    }
+
+    fun recordFailure() {
+        lastFailureAtMs.set(System.currentTimeMillis())
+    }
+
+    fun reset() {
+        lastFailureAtMs.set(0L)
+    }
+}
+
+private val lastBleScannerToastAtMs = AtomicLong(0L)
+private const val TOAST_DEBOUNCE_MS = 3_500L
+
+private fun showBleScannerToastOnce(context: android.content.Context, message: String) {
+    val now = System.currentTimeMillis()
+    while (true) {
+        val prev = lastBleScannerToastAtMs.get()
+        if (now - prev < TOAST_DEBOUNCE_MS) return
+        if (lastBleScannerToastAtMs.compareAndSet(prev, now)) break
+    }
+    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+}
 
 /**
  * Scanner screen for receiving transaction payload QR codes.
@@ -53,7 +108,8 @@ fun TransactionQRScannerScreen(
     currentPayeeId: String, // Current user's ID to validate payeeId in QR
     bleReceiverMode: Boolean = false,
     onScanResult: (TransactionPayloadQR) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOfflineLedgerUpdated: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -156,6 +212,7 @@ fun TransactionQRScannerScreen(
                                         repository = repository,
                                         scope = scope,
                                         bleReceiverMode = bleReceiverMode,
+                                        onOfflineLedgerUpdated = onOfflineLedgerUpdated,
                                     ) { transaction ->
                                         scannedTransaction = transaction
                                         onScanResult(transaction)
@@ -222,6 +279,7 @@ private fun processImageProxyForTransaction(
     repository: WalletRepository,
     scope: kotlinx.coroutines.CoroutineScope,
     bleReceiverMode: Boolean,
+    onOfflineLedgerUpdated: () -> Unit,
     onResult: (TransactionPayloadQR) -> Unit,
 ) {
     val mediaImage = imageProxy.image
@@ -233,7 +291,7 @@ private fun processImageProxyForTransaction(
         
         val scanner = BarcodeScanning.getClient()
         scanner.process(image)
-            .addOnSuccessListener { barcodes ->
+            .addOnSuccessListener(transactionQrBarcodeExecutor) { barcodes ->
                 for (barcode in barcodes) {
                     when (barcode.valueType) {
                         Barcode.TYPE_TEXT, Barcode.TYPE_URL -> {
@@ -248,39 +306,56 @@ private fun processImageProxyForTransaction(
                                 if (validation.isValid) {
                                     val useBle = bleReceiverMode && BlePaymentLink.server != null
                                     if (useBle) {
+                                        if (TransactionQrBleReceiveCooldown.isInCooldown()) {
+                                            return@addOnSuccessListener
+                                        }
+                                        if (!TransactionQrBleReceiveGuard.tryAcquire()) {
+                                            return@addOnSuccessListener
+                                        }
                                         scope.launch {
-                                            val msg = coroutineScope {
-                                                val abort = async {
-                                                    BlePaymentLink.sessionAbortFlow.first()
-                                                }
-                                                val work = async {
-                                                    BleHandshake.receiverSendAckAndAwaitOk(
-                                                        context = context,
-                                                        repository = repository,
-                                                        payload = transactionPayload,
-                                                        currentPayeeId = currentPayeeId,
-                                                    )
-                                                }
-                                                select<String?> {
-                                                    abort.onAwait { reason ->
-                                                        work.cancel()
-                                                        reason
+                                            try {
+                                                val msg = coroutineScope {
+                                                    val abort = async {
+                                                        BlePaymentLink.sessionAbortFlow.first()
                                                     }
-                                                    work.onAwait { res ->
-                                                        abort.cancel()
-                                                        if (res.isSuccess) {
-                                                            onResult(transactionPayload)
-                                                            null
-                                                        } else {
-                                                            res.exceptionOrNull()?.message
-                                                                ?: "Bluetooth payment could not be completed"
+                                                    val work = async {
+                                                        BleHandshake.receiverSendAckAndAwaitOk(
+                                                            context = context,
+                                                            repository = repository,
+                                                            payload = transactionPayload,
+                                                            currentPayeeId = currentPayeeId,
+                                                        )
+                                                    }
+                                                    select<String?> {
+                                                        abort.onAwait { reason ->
+                                                            work.cancel()
+                                                            reason
+                                                        }
+                                                        work.onAwait { res ->
+                                                            abort.cancel()
+                                                            if (res.isSuccess) {
+                                                                TransactionQrBleReceiveCooldown.reset()
+                                                                onOfflineLedgerUpdated()
+                                                                onResult(transactionPayload)
+                                                                null
+                                                            } else {
+                                                                res.exceptionOrNull()?.message
+                                                                    ?: "Bluetooth payment could not be completed"
+                                                            }
                                                         }
                                                     }
                                                 }
-                                            }
-                                            msg?.let { m ->
-                                                android.util.Log.e("TransactionQRScanner", "BLE receive flow: $m")
-                                                Toast.makeText(context, m, Toast.LENGTH_LONG).show()
+                                                msg?.let { m ->
+                                                    TransactionQrBleReceiveCooldown.recordFailure()
+                                                    android.util.Log.e("TransactionQRScanner", "BLE receive flow: $m")
+                                                    showBleScannerToastOnce(
+                                                        context,
+                                                        "$m\n\nYou can scan the same payment QR again to retry. " +
+                                                            "Credits apply only once per transaction id.",
+                                                    )
+                                                }
+                                            } finally {
+                                                TransactionQrBleReceiveGuard.release()
                                             }
                                         }
                                     } else {

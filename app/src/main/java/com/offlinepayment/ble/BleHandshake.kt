@@ -13,6 +13,7 @@ import org.json.JSONObject
 import com.offlinepayment.security.OfflineLedgerChain
 import com.offlinepayment.utils.EncryptionHelper
 import com.offlinepayment.utils.TransactionSigner
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -65,6 +66,14 @@ object BleHandshake {
         currentPayeeId: String,
         timeoutMs: Long,
     ): Result<BleSenderOkWire> {
+        if (payload.payerPkB64.isNullOrBlank()) {
+            return Result.failure(
+                IllegalStateException(
+                    "This QR does not include the sender Bluetooth key (payerPkB64). " +
+                        "The sender must connect over Bluetooth first, then generate the payment QR from the linked Send screen.",
+                ),
+            )
+        }
         val signer = TeeEcdsaSigner.getInstance(context)
         val keyPair = signer.getOrCreateKeyPair()
         val pubSpki = keyPair.public.encoded
@@ -79,49 +88,67 @@ object BleHandshake {
         val sig = signer.sign(canonical)
         val wire = BlePaymentWire.encodeReceiverAck(pubSpki, ts, sig)
 
-        var notified = false
-        repeat(8) { attempt ->
-            if (server.connectedDevice == null) {
-                return Result.failure(
-                    IllegalStateException("Bluetooth connection lost before the acknowledgment could be sent."),
-                )
-            }
-            val ok = withContext(Dispatchers.Main) { server.notifyAckPayload(wire) }
-            if (ok) {
-                notified = true
-                return@repeat
-            }
-            delay(250L * (attempt + 1))
-        }
-        if (!notified) {
-            return Result.failure(IllegalStateException("Could not send BLE acknowledgment"))
-        }
+        BlePaymentLink.drainSenderOkChannel()
 
         val okResult: Result<BleSenderOkWire> = coroutineScope {
             val abortWait = async { BlePaymentLink.sessionAbortFlow.first() }
-            val okWait = async {
-                withTimeoutOrNull(timeoutMs) {
-                    BlePaymentLink.senderOkFlow.first { w ->
-                        val payerPk = payload.payerPkB64
-                        if (payerPk.isNullOrBlank()) return@first false
-                        val canon = BlePaymentMessages.canonicalSenderOkSignString(payload.txId, w.ts)
-                        TeeEcdsaSigner.verifySignature(payerPk, canon, w.signatureDer)
+            // Subscribe before notify: sender can write OK immediately after the last notify chunk;
+            // SharedFlow tryEmit + late first() used to drop that OK so the receiver never advanced.
+            val okCollector = async<BleSenderOkWire>(start = CoroutineStart.UNDISPATCHED) {
+                while (true) {
+                    val w = BlePaymentLink.receiveSenderOkWire()
+                    val payerPk = payload.payerPkB64
+                    if (payerPk.isNullOrBlank()) continue
+                    val canon = BlePaymentMessages.canonicalSenderOkSignString(payload.txId, w.ts)
+                    if (TeeEcdsaSigner.verifySignature(payerPk, canon, w.signatureDer)) {
+                        return@async w
+                    }
+                }
+                error("unreachable")
+            }
+
+            var notified = false
+            repeat(8) { attempt ->
+                if (server.connectedDevice == null) {
+                    okCollector.cancel()
+                    abortWait.cancel()
+                    return@coroutineScope Result.failure(
+                        IllegalStateException("Bluetooth connection lost before the acknowledgment could be sent."),
+                    )
+                }
+                val ok = server.notifyAckPayload(wire)
+                if (ok) {
+                    notified = true
+                    return@repeat
+                }
+                delay(250L * (attempt + 1))
+            }
+            if (!notified) {
+                okCollector.cancel()
+                abortWait.cancel()
+                return@coroutineScope Result.failure(IllegalStateException("Could not send BLE acknowledgment"))
+            }
+
+            val picked = withTimeoutOrNull(timeoutMs) {
+                select<Result<BleSenderOkWire>> {
+                    abortWait.onAwait { reason ->
+                        okCollector.cancel()
+                        Result.failure(IllegalStateException(reason))
+                    }
+                    okCollector.onAwait { wire ->
+                        abortWait.cancel()
+                        Result.success(wire)
                     }
                 }
             }
-            select<Result<BleSenderOkWire>> {
-                abortWait.onAwait { reason ->
-                    okWait.cancel()
-                    Result.failure(IllegalStateException(reason))
-                }
-                okWait.onAwait { msg ->
-                    abortWait.cancel()
-                    if (msg == null) {
-                        Result.failure(IllegalStateException("Timed out waiting for sender Bluetooth confirmation"))
-                    } else {
-                        Result.success(msg)
-                    }
-                }
+            if (picked != null) {
+                picked
+            } else {
+                okCollector.cancel()
+                abortWait.cancel()
+                Result.failure(
+                    IllegalStateException("Timed out waiting for sender Bluetooth confirmation"),
+                )
             }
         }
 
@@ -214,18 +241,12 @@ object BleHandshake {
             direction = "RECEIVED",
             rawPayload = rawPayload,
         )
-        // WalletRepository.saveLocalTransaction applies OfflineLedgerChain.appendEncryptedAndChained
-        // (ledgerPrevHash / ledgerEntryHash / ledgerSequence) for server-side chain verification.
-        repository.saveLocalTransaction(localTransaction)
-
-        try {
-            val currentBalance = BigDecimal(receiverWallet.balance)
-            val transactionAmount = BigDecimal(payload.amount.toString()).divide(BigDecimal("100"))
-            val newBalance = currentBalance.add(transactionAmount).min(BigDecimal("5000"))
-            repository.updateOfflineWalletBalance(receiverWallet.walletId, newBalance.toPlainString())
-        } catch (_: Exception) {
-        }
-        return Result.success(Unit)
+        val transactionAmount = BigDecimal(payload.amount.toString()).divide(BigDecimal("100"))
+        return repository.recordReceivedOfflinePayment(
+            transaction = localTransaction,
+            walletId = receiverWallet.walletId,
+            creditAmount = transactionAmount,
+        )
     }
 
     suspend fun senderVerifyAckAndReplyOk(
@@ -348,11 +369,10 @@ object BleHandshake {
             direction = "SENT",
             rawPayload = rawPayload,
         )
-        // WalletRepository.saveLocalTransaction applies OfflineLedgerChain.appendEncryptedAndChained
-        // (ledgerPrevHash / ledgerEntryHash / ledgerSequence) for server-side chain verification.
-        repository.saveLocalTransaction(localTransaction)
-        val newBalance = currentBalance.subtract(transactionAmount)
-        repository.updateOfflineWalletBalance(walletId, newBalance.toPlainString())
-        return Result.success(Unit)
+        return repository.recordSentOfflinePayment(
+            transaction = localTransaction,
+            walletId = walletId,
+            debitAmount = transactionAmount,
+        )
     }
 }

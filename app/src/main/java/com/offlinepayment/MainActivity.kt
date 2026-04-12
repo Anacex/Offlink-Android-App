@@ -61,7 +61,6 @@ import com.offlinepayment.ui.auth.CreateAccountScreen
 import com.offlinepayment.ui.auth.ForgotPasswordScreen
 import com.offlinepayment.ui.auth.LoginScreen
 import com.offlinepayment.ui.profile.ProfileScreen
-import com.offlinepayment.ui.qr.QRCodeScreen
 import com.offlinepayment.ui.qr.QRScannerScreen
 import com.offlinepayment.ui.qr.TransactionIntentReceivedScreen
 import com.offlinepayment.ui.qr.TransactionReceivedScreen
@@ -82,6 +81,7 @@ import com.offlinepayment.ui.wallet.WalletViewModel
 import com.offlinepayment.utils.CurrencyUtils
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
+import com.offlinepayment.utils.WalletLimits
 
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -269,20 +269,26 @@ fun MainAppContent(
     val syncState by syncViewModel.syncState.collectAsState()
     val isOnline by syncViewModel.isOnline.collectAsState()
     
-    // Refresh wallets after successful sync
+    // Refresh wallets after successful sync; surface sync errors and return to idle so auto-retry can run
     LaunchedEffect(syncState) {
-        if (syncState is com.offlinepayment.ui.sync.SyncState.Success) {
-            val successState = syncState as com.offlinepayment.ui.sync.SyncState.Success
-            // Only alert when there is something meaningful to report
-            if (successState.syncedCount > 0 || successState.failedCount > 0) {
-                val message = "Synced ${successState.syncedCount} (failed ${successState.failedCount})"
-                android.widget.Toast
-                    .makeText(context, message, android.widget.Toast.LENGTH_SHORT)
-                    .show()
-                walletViewModel.onSyncCompleted()
+        when (val s = syncState) {
+            is com.offlinepayment.ui.sync.SyncState.Success -> {
+                if (s.syncedCount > 0 || s.failedCount > 0) {
+                    val message = "Synced ${s.syncedCount} (failed ${s.failedCount})"
+                    android.widget.Toast
+                        .makeText(context, message, android.widget.Toast.LENGTH_SHORT)
+                        .show()
+                    walletViewModel.onSyncCompleted()
+                }
+                syncViewModel.resetSyncState()
             }
-            // Reset sync state promptly to avoid repeated alerts on periodic syncs with zero changes
-            syncViewModel.resetSyncState()
+            is com.offlinepayment.ui.sync.SyncState.Error -> {
+                android.widget.Toast
+                    .makeText(context, s.message, android.widget.Toast.LENGTH_LONG)
+                    .show()
+                syncViewModel.resetSyncState()
+            }
+            else -> Unit
         }
     }
     
@@ -292,7 +298,6 @@ fun MainAppContent(
     val userName = profileState.userName.ifEmpty { "User" }
     val userEmail = profileState.email.ifEmpty { authUiState.userEmail ?: "" }
     val userPhone = profileState.phone
-    val qrCodeId = offlineWallet?.id?.toString() ?: "QR${finalUserId ?: ""}"
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -463,8 +468,13 @@ fun MainAppContent(
                 }
                 composable("ble-receiver-ready") {
                     val uid = finalUserId?.toString() ?: "0"
+                    val canReceive = BigDecimal.valueOf(userBalance) < WalletLimits.MAX_OFFLINE_WALLET_BALANCE_BD
                     BleReceiverReadyScreen(
+                        userId = finalUserId,
                         userIdSuffix = uid,
+                        userName = userName,
+                        balance = userBalance,
+                        canReceivePayments = canReceive,
                         onBack = {
                             BlePaymentLink.server?.stop()
                             BlePaymentLink.server = null
@@ -565,6 +575,7 @@ fun MainAppContent(
                         onBleLinkLostExit = {
                             navController.popBackStack("wallet", inclusive = false)
                         },
+                        onOfflineLedgerUpdated = { walletViewModel.refreshWallets() },
                     )
                     }
                 }
@@ -663,7 +674,8 @@ fun MainAppContent(
                             },
                             onBack = {
                                 navController.popBackStack()
-                            }
+                            },
+                            onOfflineLedgerUpdated = { walletViewModel.refreshWallets() },
                         )
                     } else {
                         // User ID not available - show error and navigate back
@@ -729,7 +741,8 @@ fun MainAppContent(
                         com.offlinepayment.ui.qr.TransactionReceivedScreen(
                             transactionPayload = payload,
                             onAccept = {
-                                // Transaction already saved as "RECEIVED" in TransactionQRScannerScreen
+                                // User explicitly ends the BLE receive session (stops GATT server / advertising).
+                                BlePaymentLink.clear()
                                 navController.popBackStack("wallet", inclusive = false)
                             },
                             onReject = {
@@ -780,20 +793,27 @@ fun MainAppContent(
                             kotlinx.coroutines.flow.flowOf(emptyList())
                         }
                     }.collectAsState(initial = emptyList())
-                    val isLoadingLocal = false
                     
-                    // Load transfer history and synced transactions from server
-                    LaunchedEffect(Unit) {
-                        walletViewModel.getTransferHistory()
-                        walletViewModel.getSyncedTransactions()
+                    LaunchedEffect(isOnline) {
+                        if (isOnline) {
+                            walletViewModel.loadUnifiedServerHistory(limit = 10, silentError = true)
+                        }
                     }
                     
                     TransactionListScreen(
                         transfers = walletUiState.transferHistory,
                         localTransactions = localTransactions,
                         syncedTransactions = walletUiState.syncedTransactions,
-                        isLoading = walletUiState.isLoadingHistory || walletUiState.isLoadingSyncedTransactions || isLoadingLocal
-                    ) { _ -> }
+                        unifiedServerHistory = walletUiState.unifiedServerHistory,
+                        isLoading = if (isOnline) {
+                            walletUiState.isLoadingUnifiedServerHistory
+                        } else {
+                            false
+                        },
+                        homeHistoryMode = true,
+                        isOnline = isOnline,
+                        onTransactionClick = { _ -> },
+                    )
                 }
                 composable("topup") {
                     // Get offline wallet for top-up
@@ -982,46 +1002,8 @@ fun MainAppContent(
                 composable("profile") {
                     ProfileScreen(
                         onViewTransactions = { navController.navigate("transactions") },
-                        onViewQRCode = { navController.navigate("qr") },
-                        onSettings = { /* TODO */ },
                         onLogout = onLogout
                     )
-                }
-                composable("qr") {
-                    // Use local variable to avoid smart cast issues
-                    val currentUserIdForQR = finalUserId
-                    if (currentUserIdForQR == null) {
-                        androidx.compose.material3.Surface {
-                            androidx.compose.foundation.layout.Column(
-                                modifier = androidx.compose.ui.Modifier
-                                    .fillMaxSize()
-                                    .padding(16.dp),
-                                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-                                verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
-                            ) {
-                                androidx.compose.material3.Text(
-                                    text = "Unable to retrieve user information",
-                                    style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
-                                    color = androidx.compose.ui.graphics.Color.Red
-                                )
-                            }
-                        }
-                    } else {
-                        QRCodeScreen(
-                            userId = currentUserIdForQR,
-                            qrCodeId = qrCodeId,
-                            userName = userName,
-                            balance = userBalance,
-                            onScanQR = {
-                                when (val a = BleOfflinkEligibility.assessReceiver(context)) {
-                                    is BleOfflinkAssessment.Blocked ->
-                                        Toast.makeText(context, a.userMessage, Toast.LENGTH_LONG).show()
-                                    is BleOfflinkAssessment.Ok ->
-                                        navController.navigate("ble-receiver-ready")
-                                }
-                            }
-                        )
-                    }
                 }
             }
         }
@@ -1099,11 +1081,6 @@ fun DrawerContent(
             icon = Icons.Default.List,
             title = "Transactions",
             onClick = { onNavigate("transactions") }
-        )
-        DrawerMenuItem(
-            icon = Icons.Default.Settings,
-            title = "My QR Code",
-            onClick = { onNavigate("qr") }
         )
         DrawerMenuItem(
             icon = Icons.Default.Person,

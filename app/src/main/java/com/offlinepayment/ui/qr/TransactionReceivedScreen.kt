@@ -183,6 +183,14 @@ fun TransactionReceivedScreen(
         
         Spacer(modifier = Modifier.height(32.dp))
         
+        Text(
+            text = "Bluetooth stays on until you disconnect. Use the button below when you are finished.",
+            fontSize = 13.sp,
+            color = Color(0xFF64748B),
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
         // Action Buttons
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -196,7 +204,7 @@ fun TransactionReceivedScreen(
                 ),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("Reject", fontWeight = FontWeight.Bold)
+                Text("Back to scanner", fontWeight = FontWeight.Bold)
             }
             
             Button(
@@ -207,7 +215,7 @@ fun TransactionReceivedScreen(
                 ),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("Accept Payment", fontWeight = FontWeight.Bold)
+                Text("Disconnect Bluetooth & wallet", fontWeight = FontWeight.Bold)
             }
         }
     }

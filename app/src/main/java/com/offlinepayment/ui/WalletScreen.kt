@@ -78,7 +78,10 @@ fun WalletScreen(
 ) {
     val context = LocalContext.current
     val isOnlineLocal = NetworkUtils.isOnline(context)
-    val balanceText = uiState.wallets.firstOrNull()?.balance?.toPlainString() ?: "0.00"
+    val offlineWalletForBalance = uiState.wallets.firstOrNull { it.wallet_type == "offline" }
+    val balanceText = offlineWalletForBalance?.balance?.toPlainString()
+        ?: uiState.wallets.firstOrNull()?.balance?.toPlainString()
+        ?: "0.00"
     val bleSenderAssessment = BleOfflinkEligibility.assessSender(context)
     val bleReceiverAssessment = BleOfflinkEligibility.assessReceiver(context)
 
@@ -464,23 +467,20 @@ fun WalletScreen(
                                 color = Color(0xFF111827)
                             )
                         }
-                        // Refresh button - only show when online
-                        if (isOnline) {
-                            Button(
-                                onClick = onRefresh,
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFFF3F4F6)
-                                ),
-                                modifier = Modifier.height(40.dp)
-                            ) {
-                                Text(
-                                    text = "Refresh",
-                                    color = Color(0xFF374151),
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
+                        Button(
+                            onClick = onRefresh,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFF3F4F6)
+                            ),
+                            modifier = Modifier.height(40.dp)
+                        ) {
+                            Text(
+                                text = if (isOnline) "Refresh" else "Refresh (local)",
+                                color = Color(0xFF374151),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
                     }
                     Spacer(modifier = Modifier.height(12.dp))
@@ -914,7 +914,7 @@ fun WalletScreen(
                                 color = Color.White
                             )
                             Text(
-                                text = "Link, then scan sender QR",
+                                text = "Link → show your payee QR → scan payment QR",
                                 fontSize = 12.sp,
                                 color = Color.White.copy(alpha = 0.9f)
                             )

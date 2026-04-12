@@ -19,6 +19,9 @@ import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 /**
  * Receiver side: BLE advertisement + GATT server.
@@ -41,6 +44,13 @@ class BleGattServerManager(
     @Volatile
     var connectedDevice: BluetoothDevice? = null
         private set
+
+    /**
+     * Central that enabled notifications on [CHAR_ACK_NOTIFY] (CCCD). Prefer this for
+     * [notifyAckPayload] when multiple GATT centrals are connected (last-writer wins).
+     */
+    @Volatile
+    private var ackNotifyTarget: BluetoothDevice? = null
 
     @Volatile
     var negotiatedMtu: Int = 23
@@ -68,6 +78,9 @@ class BleGattServerManager(
             } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
                 if (connectedDevice?.address == device.address) {
                     connectedDevice = null
+                }
+                if (ackNotifyTarget?.address == device.address) {
+                    ackNotifyTarget = null
                 }
                 mainHandler.post { onCentralDisconnected?.invoke() }
             }
@@ -107,6 +120,18 @@ class BleGattServerManager(
             value: ByteArray,
         ) {
             if (descriptor.uuid == BleOfflinkContract.CCCD_UUID) {
+                val parent = descriptor.characteristic
+                if (parent?.uuid == BleOfflinkContract.CHAR_ACK_NOTIFY) {
+                    val enabled = value.isNotEmpty() &&
+                        (value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) ||
+                            value.contentEquals(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE))
+                    if (enabled) {
+                        ackNotifyTarget = device
+                        Log.d(TAG, "ACK notifications enabled by ${device.address}")
+                    } else if (ackNotifyTarget?.address == device.address) {
+                        ackNotifyTarget = null
+                    }
+                }
                 gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, value)
             } else if (responseNeeded) {
                 gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, 0, null)
@@ -115,6 +140,9 @@ class BleGattServerManager(
     }
 
     fun isBluetoothAvailable(): Boolean = adapter?.isEnabled == true
+
+    /** True while GATT server (and typically advertising) is active — used to restore UI without restarting. */
+    fun isAdvertisingSessionActive(): Boolean = gattServer != null
 
     fun startAdvertisingAndServer(displaySuffix: String) {
         stop()
@@ -177,9 +205,14 @@ class BleGattServerManager(
 
     /**
      * Sends a binary ack payload (no transaction fields) to the central via notify (chunked if needed).
+     * Must be called from a coroutine: uses [delay] between chunks instead of [Thread.sleep] so the
+     * main thread is never blocked (chunked acks are larger than one ATT PDU).
      */
-    fun notifyAckPayload(payload: ByteArray): Boolean {
-        val device = connectedDevice ?: return false
+    suspend fun notifyAckPayload(payload: ByteArray): Boolean {
+        val device = ackNotifyTarget ?: connectedDevice ?: run {
+            Log.w(TAG, "notifyAckPayload: no central (CCCD not enabled yet or disconnected)")
+            return false
+        }
         val char = ackCharacteristic ?: return false
         val g = gattServer ?: return false
 
@@ -190,8 +223,10 @@ class BleGattServerManager(
             packet[0] = 1
             packet[1] = 0
             System.arraycopy(payload, 0, packet, 2, payload.size)
-            char.value = packet
-            return g.notifyCharacteristicChanged(device, char, false)
+            return withContext(Dispatchers.Main) {
+                char.value = packet
+                g.notifyCharacteristicChanged(device, char, false)
+            }
         }
 
         val total = (payload.size + mtuPayload - 1) / mtuPayload
@@ -205,13 +240,16 @@ class BleGattServerManager(
             packet[0] = total.toByte()
             packet[1] = i.toByte()
             System.arraycopy(chunk, 0, packet, 2, chunk.size)
-            char.value = packet
-            val ok = g.notifyCharacteristicChanged(device, char, false)
-            if (!ok) return false
-            try {
-                Thread.sleep(25)
-            } catch (_: InterruptedException) {
-                break
+            val ok = withContext(Dispatchers.Main) {
+                char.value = packet
+                g.notifyCharacteristicChanged(device, char, false)
+            }
+            if (!ok) {
+                Log.w(TAG, "notifyAckPayload: chunk $i/$total failed")
+                return false
+            }
+            if (i < total - 1) {
+                delay(25)
             }
         }
         return true
@@ -225,6 +263,7 @@ class BleGattServerManager(
         ackCharacteristic = null
         cmdCharacteristic = null
         connectedDevice = null
+        ackNotifyTarget = null
         negotiatedMtu = 23
     }
 

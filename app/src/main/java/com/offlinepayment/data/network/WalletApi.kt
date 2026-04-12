@@ -6,10 +6,12 @@ import com.offlinepayment.data.WalletCreateVerifyRequest
 import com.offlinepayment.data.WalletDto
 import com.offlinepayment.data.WalletTransferRequest
 import com.offlinepayment.data.WalletTransferResponse
+import okhttp3.RequestBody
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
+import retrofit2.http.Query
 
 /**
  * Retrofit contract for wallet-related routes.
@@ -52,12 +54,17 @@ interface WalletApi {
  */
 interface SyncApi {
     @POST("api/v1/offline-transactions/sync")
-    suspend fun syncTransactions(@Body request: com.offlinepayment.data.SyncRequest): com.offlinepayment.data.SyncResponse
+    suspend fun syncTransactions(@Body body: RequestBody): com.offlinepayment.data.SyncResponse
     
     @GET("api/v1/offline-transactions/")
     suspend fun getSyncedTransactions(
         @retrofit2.http.Query("status_filter") statusFilter: String? = null,
         @retrofit2.http.Query("limit") limit: Int = 50
     ): List<com.offlinepayment.data.SyncedOfflineTransaction>
+
+    @GET("api/v1/offline-transactions/unified-history")
+    suspend fun getUnifiedOfflineHistory(
+        @Query("limit") limit: Int = 10,
+    ): List<com.offlinepayment.data.UnifiedOfflineHistoryItem>
 }
 

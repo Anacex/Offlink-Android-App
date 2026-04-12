@@ -13,6 +13,7 @@ import com.offlinepayment.data.WalletDto
 import com.offlinepayment.data.WalletTransferRequest
 import com.offlinepayment.data.WalletTransferResponse
 import com.offlinepayment.data.SyncedOfflineTransaction
+import com.offlinepayment.data.UnifiedOfflineHistoryItem
 import com.offlinepayment.data.local.AppDatabase
 import com.offlinepayment.data.local.LocalTransaction
 import com.offlinepayment.data.local.OfflineWallet
@@ -24,6 +25,7 @@ import com.offlinepayment.security.OfflineLedgerChain
 import com.offlinepayment.utils.EncryptionHelper
 import com.offlinepayment.utils.ErrorUtils
 import com.offlinepayment.utils.NetworkUtils
+import com.offlinepayment.utils.WalletLimits
 import com.squareup.moshi.Moshi
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -50,6 +52,121 @@ class WalletRepository(
     companion object {
         private const val PREF_LAST_ONLINE_SESSION = "last_online_session_timestamp"
         private const val TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000L
+        /** Marks that offline wallet balance was adjusted for this txId + direction (idempotent retry). */
+        private const val PREF_OFFLINE_BAL_APPLIED_PREFIX = "offline_bal_applied_v1_"
+    }
+
+    private fun offlineBalanceAppliedKey(txId: String, direction: String) =
+        "${PREF_OFFLINE_BAL_APPLIED_PREFIX}${txId}_$direction"
+
+    private fun isOfflineBalanceApplied(txId: String, direction: String): Boolean =
+        sharedPreferences?.getBoolean(offlineBalanceAppliedKey(txId, direction), false) == true
+
+    private fun markOfflineBalanceApplied(txId: String, direction: String) {
+        sharedPreferences?.edit()?.putBoolean(offlineBalanceAppliedKey(txId, direction), true)?.commit()
+    }
+
+    private fun assertSameSignedLocalTx(existing: LocalTransaction, incoming: LocalTransaction): Result<Unit> {
+        val sameDir = (existing.direction ?: "") == (incoming.direction ?: "")
+        if (!sameDir) {
+            return Result.failure(
+                IllegalStateException("This transaction id is already stored with a different direction."),
+            )
+        }
+        if (BigDecimal(existing.amount).compareTo(BigDecimal(incoming.amount)) != 0) {
+            return Result.failure(
+                IllegalStateException("This transaction id is already stored with a different amount."),
+            )
+        }
+        return Result.success(Unit)
+    }
+
+    /**
+     * Inserts hash-chained [LocalTransaction] if [LocalTransaction.txId] is absent, then applies
+     * offline wallet credit **once** per txId (prefs). Safe to call again after BLE/UI retries or
+     * partial failures (row saved but balance step interrupted).
+     */
+    suspend fun recordReceivedOfflinePayment(
+        transaction: LocalTransaction,
+        walletId: Int,
+        creditAmount: BigDecimal,
+        maxWalletBalance: BigDecimal = WalletLimits.MAX_OFFLINE_WALLET_BALANCE_BD,
+    ): Result<Unit> {
+        return withContext(ioDispatcher) {
+            if (sharedPreferences == null) {
+                return@withContext Result.failure(
+                    IllegalStateException("Application context is required to record offline payments."),
+                )
+            }
+            val dao = localTransactionDao
+                ?: return@withContext Result.failure(IllegalStateException("Local database not available."))
+            val ctx = context
+            val existing = dao.getTransactionByTxId(transaction.txId)
+            if (existing != null) {
+                assertSameSignedLocalTx(existing, transaction).getOrElse { return@withContext Result.failure(it) }
+            } else {
+                val toStore = if (ctx != null) {
+                    OfflineLedgerChain.appendEncryptedAndChained(dao, ctx, transaction)
+                } else {
+                    transaction
+                }
+                dao.insertTransaction(toStore)
+            }
+
+            if (!isOfflineBalanceApplied(transaction.txId, "RECEIVED")) {
+                val w = offlineWalletDao?.getWalletById(walletId)
+                    ?: return@withContext Result.failure(IllegalStateException("Wallet not found."))
+                val newBal = BigDecimal(w.balance).add(creditAmount).min(maxWalletBalance)
+                offlineWalletDao?.updateBalance(walletId, newBal.toPlainString())
+                markOfflineBalanceApplied(transaction.txId, "RECEIVED")
+            }
+            Result.success(Unit)
+        }
+    }
+
+    /**
+     * Inserts hash-chained [LocalTransaction] if absent, then applies offline wallet debit **once**
+     * per txId. Re-checks balance on first debit only; retries skip debit if already applied.
+     */
+    suspend fun recordSentOfflinePayment(
+        transaction: LocalTransaction,
+        walletId: Int,
+        debitAmount: BigDecimal,
+    ): Result<Unit> {
+        return withContext(ioDispatcher) {
+            if (sharedPreferences == null) {
+                return@withContext Result.failure(
+                    IllegalStateException("Application context is required to record offline payments."),
+                )
+            }
+            val dao = localTransactionDao
+                ?: return@withContext Result.failure(IllegalStateException("Local database not available."))
+            val ctx = context
+            val existing = dao.getTransactionByTxId(transaction.txId)
+            if (existing != null) {
+                assertSameSignedLocalTx(existing, transaction).getOrElse { return@withContext Result.failure(it) }
+            } else {
+                val toStore = if (ctx != null) {
+                    OfflineLedgerChain.appendEncryptedAndChained(dao, ctx, transaction)
+                } else {
+                    transaction
+                }
+                dao.insertTransaction(toStore)
+            }
+
+            if (!isOfflineBalanceApplied(transaction.txId, "SENT")) {
+                val w = offlineWalletDao?.getWalletById(walletId)
+                    ?: return@withContext Result.failure(IllegalStateException("Wallet not found."))
+                val current = BigDecimal(w.balance)
+                if (current < debitAmount) {
+                    return@withContext Result.failure(IllegalStateException("Insufficient offline balance"))
+                }
+                val newBal = current.subtract(debitAmount)
+                offlineWalletDao?.updateBalance(walletId, newBal.toPlainString())
+                markOfflineBalanceApplied(transaction.txId, "SENT")
+            }
+            Result.success(Unit)
+        }
     }
 
     suspend fun ensureSessionOrThrow() {
@@ -132,15 +249,24 @@ class WalletRepository(
             } catch (e: Exception) {
                 null // Private key fetch failed, continue without it
             }
+
+            val existing = offlineWalletDao.getWalletById(wallet.id)
+            val pendingCount = localTransactionDao?.countPendingForWallet(wallet.id) ?: 0
+            val balanceString = if (pendingCount > 0 && existing != null) {
+                // Optimistic local ledger debits/credits until sync; do not overwrite with stale server balance.
+                existing.balance
+            } else {
+                wallet.balance.toPlainString()
+            }
             
             OfflineWallet(
                 walletId = wallet.id,
                 userId = wallet.user_id ?: 0,
                 walletType = wallet.wallet_type,
                 currency = wallet.currency,
-                balance = wallet.balance.toPlainString(),
+                balance = balanceString,
                 publicKey = wallet.public_key,
-                privateKeyEncrypted = privateKeyEncrypted,
+                privateKeyEncrypted = privateKeyEncrypted ?: existing?.privateKeyEncrypted,
                 bankAccountNumber = wallet.bank_account_number,
                 isActive = wallet.is_active,
                 lastSyncedAt = System.currentTimeMillis()
@@ -276,13 +402,17 @@ class WalletRepository(
     }
 
     /**
-     * Save a local transaction to the database.
-     * Applies AES-GCM encryption to plaintext JSON in [LocalTransaction.rawPayload] / [LocalTransaction.receiptData]
-     * when [context] is available, then appends a hash-chain entry for tamper detection at sync.
+     * Inserts a chained local row only when [LocalTransaction.txId] is new (same direction/amount if row exists).
+     * Does **not** change wallet balance — use [recordReceivedOfflinePayment] / [recordSentOfflinePayment] for BLE payments.
      */
-    suspend fun saveLocalTransaction(transaction: LocalTransaction) {
-        withContext(ioDispatcher) {
-            val dao = localTransactionDao ?: return@withContext
+    suspend fun saveLocalTransactionIfAbsent(transaction: LocalTransaction): Boolean {
+        return withContext(ioDispatcher) {
+            val dao = localTransactionDao ?: return@withContext false
+            val existing = dao.getTransactionByTxId(transaction.txId)
+            if (existing != null) {
+                assertSameSignedLocalTx(existing, transaction).getOrElse { return@withContext false }
+                return@withContext false
+            }
             val ctx = context
             val toStore = if (ctx != null) {
                 OfflineLedgerChain.appendEncryptedAndChained(dao, ctx, transaction)
@@ -290,6 +420,7 @@ class WalletRepository(
                 transaction
             }
             dao.insertTransaction(toStore)
+            true
         }
     }
     
@@ -424,6 +555,34 @@ class WalletRepository(
                 } else {
                     Result.failure(e)
                 }
+            }
+        }
+    }
+
+    /**
+     * Last [limit] offline payments involving this user on the server (sent + received), with
+     * merge metadata (who synced first, coverage). Does not use the 24h cache window used for legacy list.
+     */
+    suspend fun getUnifiedOfflineHistory(limit: Int = 10): Result<List<UnifiedOfflineHistoryItem>> {
+        return withContext(ioDispatcher) {
+            ensureSessionOrThrow()
+            val isOnline = context?.let { NetworkUtils.isOnline(it) } ?: true
+            if (!isOnline) {
+                return@withContext Result.failure(Exception("Connect to the internet to load server history."))
+            }
+            try {
+                val capped = limit.coerceIn(1, 50)
+                Result.success(ApiClient.syncApi.getUnifiedOfflineHistory(capped))
+            } catch (e: HttpException) {
+                val errorBody = e.response()?.errorBody()?.string()
+                val errorMessage = ErrorUtils.extractErrorMessage(
+                    errorBody = errorBody,
+                    httpCode = e.code(),
+                    defaultMessage = "HTTP ${e.code()}: ${e.message()}",
+                )
+                Result.failure(Exception(errorMessage))
+            } catch (e: Exception) {
+                Result.failure(e)
             }
         }
     }

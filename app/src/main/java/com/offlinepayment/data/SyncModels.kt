@@ -73,3 +73,25 @@ data class SyncedOfflineTransaction(
     val createdAt: String // ISO 8601 datetime
 )
 
+/**
+ * Merged server history: sender settlement + receiver attestation for the same payment nonce.
+ */
+data class UnifiedOfflineHistoryItem(
+    val nonce: String,
+    @Json(name = "tx_id") val txId: String? = null,
+    val amount: String,
+    val currency: String,
+    /** Whether this row is shown for the current user as payer or payee. */
+    val perspective: String,
+    @Json(name = "payer_id") val payerId: String? = null,
+    @Json(name = "payee_id") val payeeId: String? = null,
+    @Json(name = "offline_transaction_id") val offlineTransactionId: Int? = null,
+    @Json(name = "receiver_sync_id") val receiverSyncId: Int? = null,
+    @Json(name = "sender_synced_at_server") val senderSyncedAtServer: String? = null,
+    @Json(name = "receiver_synced_at_server") val receiverSyncedAtServer: String? = null,
+    @Json(name = "first_sync_party") val firstSyncParty: String? = null,
+    @Json(name = "sync_coverage") val syncCoverage: String,
+    @Json(name = "receiver_attestation_at") val receiverAttestationAt: String? = null,
+    @Json(name = "sender_settlement_recorded_at") val senderSettlementRecordedAt: String? = null,
+)
+

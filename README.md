@@ -133,6 +133,47 @@ Use **two physical devices** for BLE testing; emulators are often unreliable for
 
 ---
 
+## Logcat / debugging
+
+**Android Studio**
+
+1. Open **Logcat** (View → Tool Windows → Logcat).
+2. In the device dropdown, pick your phone/emulator.
+3. Set the process filter to **Show only selected application** and choose **`com.offlinepayment`** (or type the package in the filter field, depending on your Android Studio version).
+4. Optional: **Edit Filter Configuration** → add a filter with **Package name** `com.offlinepayment` so only this app’s lines appear.
+
+That cuts most system and third-party noise while you run the app from Studio or install the APK manually.
+
+**adb (command line)**
+
+- **By process ID** (only logs from the running app — very clean):
+
+  ```bash
+  adb logcat --pid=$(adb shell pidof -s com.offlinepayment)
+  ```
+
+  On **Windows PowerShell**, if `pidof` is missing or the above fails, get the PID then pass it:
+
+  ```powershell
+  adb shell pidof -s com.offlinepayment
+  adb logcat --pid=<PID_FROM_ABOVE>
+  ```
+
+- **Silence everything, then allow levels per tag** (useful when libraries log fixed tags, e.g. HTTP):
+
+  ```bash
+  adb logcat *:S okhttp.OkHttpClient:I
+  ```
+
+  Adjust tag names and levels (`V`/`D`/`I`/`W`/`E`) to match what you care about.
+
+**Tips**
+
+- If Logcat is empty, confirm the app process is selected and **log level** is not set too high (e.g. **Error** only).
+- Crash stacks usually include **`AndroidRuntime`**; temporarily widen the filter or run `adb logcat *:E` to see errors only.
+
+---
+
 ## Related documentation (repository root)
 
 - **[OFFLINE_TRANSACTION_WORKFLOW.md](../OFFLINE_TRANSACTION_WORKFLOW.md)** — Overall offline QR workflow; includes how the **Bluetooth confirmation path** relates to persistence timing.

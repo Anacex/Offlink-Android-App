@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.offlinepayment.data.repository.SyncRepository
 import com.offlinepayment.data.repository.SyncResult
+import com.offlinepayment.data.session.AuthSessionManager
 import com.offlinepayment.utils.NetworkMonitor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,9 +32,20 @@ class SyncViewModel(application: Application) : AndroidViewModel(application) {
         NetworkMonitor.connectivityFlow(application)
             .onEach { isOnline ->
                 _isOnline.value = isOnline
-                
-                // Auto-sync when coming online
-                if (isOnline && _syncState.value is SyncState.Idle) {
+
+                // Auto-sync when online (retry after errors too — Idle-only would block forever after Error)
+                if (isOnline && _syncState.value !is SyncState.InProgress) {
+                    syncPendingTransactions()
+                }
+            }
+            .launchIn(viewModelScope)
+
+        // When the user obtains a real (non-offline) session while already on Wi‑Fi, sync immediately
+        AuthSessionManager.observeSession()
+            .onEach { session ->
+                val token = session?.accessToken.orEmpty()
+                val canSync = token.isNotBlank() && !token.startsWith("offline_token")
+                if (canSync && _isOnline.value && _syncState.value !is SyncState.InProgress) {
                     syncPendingTransactions()
                 }
             }

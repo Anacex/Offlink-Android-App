@@ -64,7 +64,7 @@ fun WalletScreen(
     onRefresh: () -> Unit,
     onTransfer: (Int, Int, BigDecimal) -> Unit,
     onSendClick: () -> Unit,
-    onReceivePaymentBleClick: () -> Unit = {},
+    onReceivePaymentClick: () -> Unit = {},
     onViewTransactionsClick: () -> Unit,
     onTopUpClick: () -> Unit = {},
     onInitiateWalletCreation: (String) -> Unit = {},
@@ -816,11 +816,18 @@ fun WalletScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Send",
+                            text = "Send payment",
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 14.sp,
                             color = if (isEmailVerified) Color.White else Color(0xFF6B7280)
                         )
+                        if (isEmailVerified) {
+                            Text(
+                                text = "Bluetooth + QR + ledger",
+                                fontSize = 11.sp,
+                                color = Color.White.copy(alpha = 0.9f)
+                            )
+                        }
                     }
                 }
                 
@@ -882,7 +889,7 @@ fun WalletScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
-                        .clickable { onReceivePaymentBleClick() },
+                        .clickable { onReceivePaymentClick() },
                     colors = CardDefaults.cardColors(containerColor = Color(0xFF1D4ED8)),
                     shape = RoundedCornerShape(16.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -899,12 +906,19 @@ fun WalletScreen(
                             fontSize = 24.sp,
                             modifier = Modifier.padding(end = 12.dp)
                         )
-                        Text(
-                            text = "Receive payment (Bluetooth)",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 16.sp,
-                            color = Color.White
-                        )
+                        Column {
+                            Text(
+                                text = "Receive payment",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 16.sp,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "Link, then scan sender QR",
+                                fontSize = 12.sp,
+                                color = Color.White.copy(alpha = 0.9f)
+                            )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(12.dp))

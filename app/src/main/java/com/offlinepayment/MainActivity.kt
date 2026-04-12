@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -311,6 +312,32 @@ fun MainAppContent(
                         drawerState.close()
                     }
                 },
+                onSendPaymentFromDrawer = {
+                    scope.launch { drawerState.close() }
+                    if (!authUiState.isEmailVerified) {
+                        authViewModel.showEmailVerificationDialog()
+                    } else {
+                        when (val a = BleOfflinkEligibility.assessSender(context)) {
+                            is BleOfflinkAssessment.Blocked ->
+                                Toast.makeText(context, a.userMessage, Toast.LENGTH_LONG).show()
+                            is BleOfflinkAssessment.Ok ->
+                                navController.navigate("ble-sender-scan")
+                        }
+                    }
+                },
+                onReceivePaymentFromDrawer = {
+                    scope.launch { drawerState.close() }
+                    if (!authUiState.isEmailVerified) {
+                        authViewModel.showEmailVerificationDialog()
+                    } else {
+                        when (val a = BleOfflinkEligibility.assessReceiver(context)) {
+                            is BleOfflinkAssessment.Blocked ->
+                                Toast.makeText(context, a.userMessage, Toast.LENGTH_LONG).show()
+                            is BleOfflinkAssessment.Ok ->
+                                navController.navigate("ble-receiver-ready")
+                        }
+                    }
+                },
                 onLogout = onLogout
             )
         }
@@ -355,19 +382,27 @@ fun MainAppContent(
                         onRefresh = onRefreshWallets,
                         onTransfer = onTransfer,
                         onSendClick = {
-                            when (val a = BleOfflinkEligibility.assessSender(walletContext)) {
-                                is BleOfflinkAssessment.Blocked ->
-                                    Toast.makeText(walletContext, a.userMessage, Toast.LENGTH_LONG).show()
-                                is BleOfflinkAssessment.Ok ->
-                                    navController.navigate("ble-sender-scan")
+                            if (!authUiState.isEmailVerified) {
+                                authViewModel.showEmailVerificationDialog()
+                            } else {
+                                when (val a = BleOfflinkEligibility.assessSender(walletContext)) {
+                                    is BleOfflinkAssessment.Blocked ->
+                                        Toast.makeText(walletContext, a.userMessage, Toast.LENGTH_LONG).show()
+                                    is BleOfflinkAssessment.Ok ->
+                                        navController.navigate("ble-sender-scan")
+                                }
                             }
                         },
-                        onReceivePaymentBleClick = {
-                            when (val a = BleOfflinkEligibility.assessReceiver(walletContext)) {
-                                is BleOfflinkAssessment.Blocked ->
-                                    Toast.makeText(walletContext, a.userMessage, Toast.LENGTH_LONG).show()
-                                is BleOfflinkAssessment.Ok ->
-                                    navController.navigate("ble-receiver-ready")
+                        onReceivePaymentClick = {
+                            if (!authUiState.isEmailVerified) {
+                                authViewModel.showEmailVerificationDialog()
+                            } else {
+                                when (val a = BleOfflinkEligibility.assessReceiver(walletContext)) {
+                                    is BleOfflinkAssessment.Blocked ->
+                                        Toast.makeText(walletContext, a.userMessage, Toast.LENGTH_LONG).show()
+                                    is BleOfflinkAssessment.Ok ->
+                                        navController.navigate("ble-receiver-ready")
+                                }
                             }
                         },
                         onViewTransactionsClick = { navController.navigate("transactions") },
@@ -978,8 +1013,12 @@ fun MainAppContent(
                             userName = userName,
                             balance = userBalance,
                             onScanQR = {
-                                // Navigate to transaction QR scanner (to scan sender's transaction QR)
-                                navController.navigate("transaction-qr-scanner/0")
+                                when (val a = BleOfflinkEligibility.assessReceiver(context)) {
+                                    is BleOfflinkAssessment.Blocked ->
+                                        Toast.makeText(context, a.userMessage, Toast.LENGTH_LONG).show()
+                                    is BleOfflinkAssessment.Ok ->
+                                        navController.navigate("ble-receiver-ready")
+                                }
                             }
                         )
                     }
@@ -996,6 +1035,8 @@ fun DrawerContent(
     userBalance: Double,
     onCloseDrawer: () -> Unit,
     onNavigate: (String) -> Unit,
+    onSendPaymentFromDrawer: () -> Unit,
+    onReceivePaymentFromDrawer: () -> Unit,
     onLogout: () -> Unit
 ) {
     Column(
@@ -1047,7 +1088,12 @@ fun DrawerContent(
         DrawerMenuItem(
             icon = Icons.Default.Send,
             title = "Send Payment",
-            onClick = { onNavigate("send") }
+            onClick = onSendPaymentFromDrawer
+        )
+        DrawerMenuItem(
+            icon = Icons.Default.QrCodeScanner,
+            title = "Receive Payment",
+            onClick = onReceivePaymentFromDrawer
         )
         DrawerMenuItem(
             icon = Icons.Default.List,

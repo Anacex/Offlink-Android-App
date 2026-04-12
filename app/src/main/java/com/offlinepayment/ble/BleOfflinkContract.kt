@@ -15,7 +15,7 @@ object BleOfflinkContract {
     /** Sender → receiver: binary [BlePaymentWire] sender OK (ts + sig only). */
     val CHAR_CMD_WRITE: UUID = UUID.fromString("6f9a4b2c-0003-4a2e-9c3d-8e1f2a3b4c5d")
 
-    val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9fb34fb")
+    val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
     const val ADV_NAME_PREFIX = "Offlink"
 

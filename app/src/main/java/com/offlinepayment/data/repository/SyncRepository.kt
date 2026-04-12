@@ -15,7 +15,6 @@ import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import org.json.JSONObject
-import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -68,25 +67,39 @@ class SyncRepository(private val context: Context) {
         val pendingTransactions = getPendingTransactions()
         
         if (pendingTransactions.isEmpty()) {
-            Log.d("SyncRepository", "No pending SENT transactions to sync")
+            Log.d("SyncRepository", "No pending transactions to sync")
             emit(SyncResult.Success(0, 0, "No pending transactions to sync"))
             return@flow
         }
 
         // Pre-validate and drop any rows missing required fields; mark them failed locally.
         val validTransactions = pendingTransactions.filter { tx ->
-            val hasSender = tx.senderWalletId > 0
-            val hasReceiverPk = !tx.receiverPublicKey.isNullOrBlank() && !tx.receiverPublicKey.startsWith("pending_")
+            val isReceived = tx.direction?.equals("RECEIVED", ignoreCase = true) == true
+            val hasWallet = tx.senderWalletId > 0
             val hasSignature = !tx.transactionSignature.isNullOrBlank()
-            if (!hasSender || !hasReceiverPk || !hasSignature) {
+            val hasChain = !tx.ledgerEntryHash.isNullOrBlank() &&
+                !tx.ledgerPrevHash.isNullOrBlank() &&
+                tx.ledgerSequence > 0L
+            val valid = if (isReceived) {
+                val hasPartyIds = !tx.payerId.isNullOrBlank() && !tx.payeeId.isNullOrBlank() && tx.txId.isNotBlank()
+                hasWallet && hasPartyIds && hasSignature && hasChain
+            } else {
+                val hasReceiverPk = !tx.receiverPublicKey.isNullOrBlank() && !tx.receiverPublicKey.startsWith("pending_")
+                hasWallet && hasReceiverPk && hasSignature && hasChain
+            }
+            if (!valid) {
                 val reason = when {
-                    !hasSender -> "Missing sender_wallet_id"
-                    !hasReceiverPk -> "Missing receiver_public_key"
-                    else -> "Missing signature"
+                    !hasWallet -> "Missing wallet id for sync party"
+                    isReceived && (tx.payerId.isNullOrBlank() || tx.payeeId.isNullOrBlank() || tx.txId.isBlank()) ->
+                        "Missing payer_id, payee_id, or tx_id (receiver sync)"
+                    !isReceived && (tx.receiverPublicKey.isNullOrBlank() || tx.receiverPublicKey.startsWith("pending_")) ->
+                        "Missing receiver_public_key"
+                    !hasSignature -> "Missing signature"
+                    else -> "Missing hash-chained ledger fields (sync requires full chain for fraud checks)"
                 }
                 transactionDao.updateTransactionStatus(tx.txId, "failed", null, reason)
             }
-            hasSender && hasReceiverPk && hasSignature
+            valid
         }
 
         if (validTransactions.isEmpty()) {
@@ -95,7 +108,7 @@ class SyncRepository(private val context: Context) {
             return@flow
         }
 
-        Log.d("SyncRepository", "Syncing ${validTransactions.size} pending SENT transactions")
+        Log.d("SyncRepository", "Syncing ${validTransactions.size} pending transaction(s) (SENT and/or RECEIVED)")
         emit(SyncResult.InProgress(pendingTransactions.size))
         
         try {
@@ -120,7 +133,9 @@ class SyncRepository(private val context: Context) {
             response.results.forEach { result ->
                 // Treat duplicate nonce errors as already-synced to avoid flipping status to failed on retries.
                 val isDuplicateNonce = result.error_reason?.contains("duplicate key value", ignoreCase = true) == true ||
-                    result.error_reason?.contains("ix_offline_transactions_nonce", ignoreCase = true) == true
+                    result.error_reason?.contains("ix_offline_transactions_nonce", ignoreCase = true) == true ||
+                    result.error_reason?.contains("uq_offline_recv_user_nonce", ignoreCase = true) == true ||
+                    result.error_reason?.contains("offline_receiver_syncs", ignoreCase = true) == true
                 val normalizedResult = if (isDuplicateNonce) {
                     result.copy(result = "synced", error_reason = null)
                 } else {
@@ -182,28 +197,32 @@ class SyncRepository(private val context: Context) {
      * Convert LocalTransaction to SyncTransactionRequest format expected by API.
      */
     private fun convertToSyncRequest(localTx: LocalTransaction): SyncTransactionRequest {
-        // Parse receipt data if it's a JSON string
-        val receipt = try {
-            if (localTx.receiptData.isNotEmpty()) {
-                val json = JSONObject(localTx.receiptData)
-                json.toMap()
-            } else {
-                emptyMap<String, Any>()
-            }
-        } catch (e: Exception) {
-            emptyMap<String, Any>()
+        val receipt = buildReceiptMapForSync(localTx)
+
+        val isReceived = localTx.direction?.equals("RECEIVED", ignoreCase = true) == true
+        val transactionData: Map<String, Any> = if (isReceived) {
+            mapOf(
+                "direction" to "RECEIVED",
+                "receiver_wallet_id" to localTx.senderWalletId,
+                "amount" to localTx.amount,
+                "currency" to localTx.currency,
+                "nonce" to localTx.nonce,
+                "timestamp" to java.time.Instant.ofEpochMilli(localTx.createdAtDevice).toString(),
+                "payer_id" to (localTx.payerId ?: ""),
+                "payee_id" to (localTx.payeeId ?: ""),
+                "tx_id" to localTx.txId,
+            )
+        } else {
+            mapOf(
+                "sender_wallet_id" to localTx.senderWalletId,
+                "receiver_public_key" to localTx.receiverPublicKey,
+                "amount" to localTx.amount,
+                "currency" to localTx.currency,
+                "nonce" to localTx.nonce,
+                "timestamp" to java.time.Instant.ofEpochMilli(localTx.createdAtDevice)
+                    .toString(),
+            )
         }
-        
-        // Build transaction_data map
-        val transactionData = mapOf(
-            "sender_wallet_id" to localTx.senderWalletId,
-            "receiver_public_key" to localTx.receiverPublicKey,
-            "amount" to localTx.amount,
-            "currency" to localTx.currency,
-            "nonce" to localTx.nonce,
-            "timestamp" to java.time.Instant.ofEpochMilli(localTx.createdAtDevice)
-                .toString()
-        )
         
         val hasChain = !localTx.ledgerEntryHash.isNullOrBlank()
         val integrityJson = if (hasChain) {
@@ -215,7 +234,7 @@ class SyncRepository(private val context: Context) {
         return SyncTransactionRequest(
             transaction_data = transactionData,
             signature = localTx.transactionSignature,
-            receipt = receipt.ifEmpty { null },
+            receipt = receipt,
             device_fingerprint = localTx.deviceFingerprint ?: DeviceFingerprintProvider.getFingerprint(),
             txId = localTx.txId,
             ledger_prev_hash = localTx.ledgerPrevHash,
@@ -224,7 +243,31 @@ class SyncRepository(private val context: Context) {
             integrity_canonical_json = integrityJson,
         )
     }
-    
+
+    /**
+     * Receipt map for the API: always includes [LocalTransaction.receiptHash]; if [LocalTransaction.receiptData]
+     * is JSON it is merged, otherwise it is sent as ciphertext (at-rest AES-GCM blob) for audit storage.
+     */
+    private fun buildReceiptMapForSync(localTx: LocalTransaction): Map<String, Any>? {
+        val rd = localTx.receiptData
+        val m = linkedMapOf<String, Any>()
+        m["receipt_hash"] = localTx.receiptHash
+        if (rd.isNotBlank()) {
+            if (rd.trimStart().startsWith("{")) {
+                try {
+                    val json = JSONObject(rd)
+                    val inner = json.toMap()
+                    inner.forEach { (k, v) -> m[k] = v }
+                } catch (_: Exception) {
+                    m["receipt_ciphertext_b64"] = rd
+                }
+            } else {
+                m["receipt_ciphertext_b64"] = rd
+            }
+        }
+        return m
+    }
+
     /**
      * Helper to convert JSONObject to Map<String, Any>
      */

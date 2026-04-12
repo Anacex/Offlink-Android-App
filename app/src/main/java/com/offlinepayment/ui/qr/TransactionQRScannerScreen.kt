@@ -285,58 +285,11 @@ private fun processImageProxyForTransaction(
                                         }
                                     } else {
                                         scope.launch {
-                                            val moshi = com.squareup.moshi.Moshi.Builder()
-                                                .add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
-                                                .build()
-                                            val adapter = moshi.adapter(com.offlinepayment.data.TransactionPayloadQR::class.java)
-                                            val rawPayload = adapter.toJson(transactionPayload)
-
-                                            val amountInPkr = java.math.BigDecimal(transactionPayload.amount.toString())
-                                                .divide(java.math.BigDecimal("100"))
-                                                .toPlainString()
-
-                                            val payeeUserId = currentPayeeId.toIntOrNull()
-                                            val receiverWallet = payeeUserId?.let {
-                                                repository.getOfflineWalletByUserIdAndType(it, "offline")
-                                            }
-
-                                            val localTransaction = com.offlinepayment.data.local.LocalTransaction(
-                                                txId = transactionPayload.txId,
-                                                senderWalletId = 0,
-                                                receiverPublicKey = receiverWallet?.publicKey ?: "pending_${transactionPayload.payeeId}",
-                                                amount = amountInPkr,
-                                                currency = "PKR",
-                                                transactionSignature = "",
-                                                nonce = transactionPayload.nonce,
-                                                receiptHash = "",
-                                                receiptData = "{}",
-                                                status = "pending",
-                                                createdAtDevice = transactionPayload.timestamp,
-                                                deviceFingerprint = com.offlinepayment.data.session.DeviceFingerprintProvider.getFingerprint(),
-                                                payerId = transactionPayload.payerId,
-                                                payeeId = transactionPayload.payeeId,
-                                                direction = "RECEIVED",
-                                                rawPayload = rawPayload,
-                                            )
-
-                                            repository.saveLocalTransaction(localTransaction)
-
-                                            try {
-                                                if (payeeUserId != null) {
-                                                    val offlineWallet = repository.getOfflineWalletByUserIdAndType(payeeUserId, "offline")
-                                                    if (offlineWallet != null) {
-                                                        val currentBalance = java.math.BigDecimal(offlineWallet.balance)
-                                                        val transactionAmount = java.math.BigDecimal(transactionPayload.amount.toString()).divide(java.math.BigDecimal("100"))
-                                                        val newBalance = currentBalance.add(transactionAmount)
-                                                        val maxBalance = java.math.BigDecimal("5000")
-                                                        val finalBalance = newBalance.min(maxBalance)
-                                                        repository.updateOfflineWalletBalance(offlineWallet.walletId, finalBalance.toPlainString())
-                                                    }
-                                                }
-                                            } catch (e: Exception) {
-                                                android.util.Log.e("TransactionQRScanner", "Failed to update receiver balance: ${e.message}")
-                                            }
-                                            onResult(transactionPayload)
+                                            Toast.makeText(
+                                                context,
+                                                "Offlink requires an active Bluetooth session before a payment can be recorded. Open Receive payment, stay connected, then scan again.",
+                                                Toast.LENGTH_LONG,
+                                            ).show()
                                         }
                                     }
                                 }

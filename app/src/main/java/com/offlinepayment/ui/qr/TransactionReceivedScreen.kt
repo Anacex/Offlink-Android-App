@@ -22,9 +22,8 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Screen displayed when payee scans payer's transaction QR code (Step 4).
- * Shows payer details (name, amount) for verification.
- * Transaction is already saved as "RECEIVED" in local storage.
+ * Shown after the receiver scans the sender's payment QR and the BLE handshake
+ * (ack + sender OK) completes. The credit is already persisted to the encrypted ledger.
  */
 @Composable
 fun TransactionReceivedScreen(
@@ -65,7 +64,7 @@ fun TransactionReceivedScreen(
         
         // Title
         Text(
-            text = "Payment Received (Offline)",
+            text = "Payment received",
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold,
             color = Color(0xFF111827)

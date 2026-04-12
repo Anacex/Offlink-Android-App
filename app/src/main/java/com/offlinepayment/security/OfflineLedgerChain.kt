@@ -77,6 +77,12 @@ object OfflineLedgerChain {
         return md.digest(input).joinToString("") { b -> "%02x".format(b) }
     }
 
+    /** SHA-256 hex over UTF-8 bytes (e.g. content fingerprint for [LocalTransaction.receiptHash]). */
+    fun sha256HexUtf8(data: String): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        return md.digest(data.toByteArray(StandardCharsets.UTF_8)).joinToString("") { b -> "%02x".format(b) }
+    }
+
     /**
      * Prepares row for insert: encrypt at rest, then append hash-chain tail.
      */

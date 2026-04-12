@@ -9,7 +9,10 @@ import com.offlinepayment.data.repository.WalletRepository
 import com.offlinepayment.data.session.DeviceFingerprintProvider
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import org.json.JSONObject
+import com.offlinepayment.security.OfflineLedgerChain
 import com.offlinepayment.utils.EncryptionHelper
+import com.offlinepayment.utils.TransactionSigner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -129,7 +132,7 @@ object BleHandshake {
         }
         val ok = okResult.getOrNull()!!
 
-        persistReceiverLedger(context, repository, payload, currentPayeeId)
+        persistReceiverLedger(context, repository, payload, currentPayeeId).getOrElse { return Result.failure(it) }
         return Result.success(ok)
     }
 
@@ -138,7 +141,7 @@ object BleHandshake {
         repository: WalletRepository,
         payload: TransactionPayloadQR,
         currentPayeeId: String,
-    ) {
+    ): Result<Unit> {
         val rawPayload = payloadAdapter.toJson(payload)
         val amountInPkr = BigDecimal(payload.amount.toString())
             .divide(BigDecimal("100"))
@@ -147,30 +150,61 @@ object BleHandshake {
         val payeeUserId = currentPayeeId.toIntOrNull()
         val receiverWallet = payeeUserId?.let {
             repository.getOfflineWalletByUserIdAndType(it, "offline")
+        } ?: return Result.failure(IllegalStateException("No offline wallet for this payee account on this device."))
+
+        val walletPrivatePem = repository.getCachedPrivateKey(receiverWallet.walletId)
+            ?: return Result.failure(
+                IllegalStateException(
+                    "Offline wallet private key is not on this device. Open the app online once so the key can be cached, then receive the payment again before syncing.",
+                ),
+            )
+
+        val timestampIso = java.time.Instant.ofEpochMilli(payload.timestamp).toString()
+        val txDataForServerSign = mapOf<String, Any>(
+            "amount" to amountInPkr,
+            "currency" to "PKR",
+            "direction" to "RECEIVED",
+            "nonce" to payload.nonce,
+            "payee_id" to payload.payeeId,
+            "payer_id" to payload.payerId,
+            "receiver_wallet_id" to receiverWallet.walletId,
+            "timestamp" to timestampIso,
+            "tx_id" to payload.txId,
+        )
+        val rsaSigForSync = try {
+            TransactionSigner.signRsaPssSha256(walletPrivatePem, txDataForServerSign)
+        } catch (e: Exception) {
+            return Result.failure(IllegalStateException("Could not sign receiver attestation for server sync: ${e.message}", e))
         }
 
-        val teeSig = try {
+        val teePayloadSig = try {
             val s = TeeEcdsaSigner.getInstance(context)
             s.getOrCreateKeyPair()
-            Base64.encodeToString(
-                s.sign(rawPayload.toByteArray(Charsets.UTF_8)),
-                Base64.NO_WRAP,
-            )
+            Base64.encodeToString(s.sign(rawPayload.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
         } catch (_: Exception) {
             "tee-unavailable"
         }
 
-        val encReceipt = runCatching { EncryptionHelper.encrypt(context, rawPayload) }.getOrElse { "{}" }
+        val encReceipt = runCatching {
+            val innerCipher = EncryptionHelper.encrypt(context, rawPayload)
+            val binding = JSONObject()
+                .put("tee_payload_sig_b64", teePayloadSig)
+                .put("payload_cipher", innerCipher)
+                .toString()
+            EncryptionHelper.encrypt(context, binding)
+        }.getOrElse { "{}" }
+        val payloadContentHash = OfflineLedgerChain.sha256HexUtf8(rawPayload)
 
+        // senderWalletId column stores the syncing party's offline wallet id (here: receiver).
         val localTransaction = LocalTransaction(
             txId = payload.txId,
-            senderWalletId = 0,
-            receiverPublicKey = receiverWallet?.publicKey ?: "pending_${payload.payeeId}",
+            senderWalletId = receiverWallet.walletId,
+            receiverPublicKey = receiverWallet.publicKey ?: "pending_${payload.payeeId}",
             amount = amountInPkr,
             currency = "PKR",
-            transactionSignature = teeSig,
+            transactionSignature = rsaSigForSync,
             nonce = payload.nonce,
-            receiptHash = "",
+            receiptHash = payloadContentHash,
             receiptData = encReceipt,
             status = "pending",
             createdAtDevice = payload.timestamp,
@@ -180,20 +214,18 @@ object BleHandshake {
             direction = "RECEIVED",
             rawPayload = rawPayload,
         )
+        // WalletRepository.saveLocalTransaction applies OfflineLedgerChain.appendEncryptedAndChained
+        // (ledgerPrevHash / ledgerEntryHash / ledgerSequence) for server-side chain verification.
         repository.saveLocalTransaction(localTransaction)
 
         try {
-            if (payeeUserId != null) {
-                val offlineWallet = repository.getOfflineWalletByUserIdAndType(payeeUserId, "offline")
-                if (offlineWallet != null) {
-                    val currentBalance = BigDecimal(offlineWallet.balance)
-                    val transactionAmount = BigDecimal(payload.amount.toString()).divide(BigDecimal("100"))
-                    val newBalance = currentBalance.add(transactionAmount).min(BigDecimal("5000"))
-                    repository.updateOfflineWalletBalance(offlineWallet.walletId, newBalance.toPlainString())
-                }
-            }
+            val currentBalance = BigDecimal(receiverWallet.balance)
+            val transactionAmount = BigDecimal(payload.amount.toString()).divide(BigDecimal("100"))
+            val newBalance = currentBalance.add(transactionAmount).min(BigDecimal("5000"))
+            repository.updateOfflineWalletBalance(receiverWallet.walletId, newBalance.toPlainString())
         } catch (_: Exception) {
         }
+        return Result.success(Unit)
     }
 
     suspend fun senderVerifyAckAndReplyOk(
@@ -258,7 +290,29 @@ object BleHandshake {
             return Result.failure(IllegalStateException("Receiver public key missing"))
         }
 
-        val teeSig = try {
+        val walletPrivatePem = repository.getCachedPrivateKey(walletId)
+            ?: return Result.failure(
+                IllegalStateException(
+                    "Offline wallet private key is not on this device. Open the app online once so the key can be cached, then complete the payment again before syncing.",
+                ),
+            )
+
+        val timestampIso = java.time.Instant.ofEpochMilli(payload.timestamp).toString()
+        val txDataForServerSign = mapOf<String, Any>(
+            "amount" to amountInPkr,
+            "currency" to "PKR",
+            "nonce" to payload.nonce,
+            "receiver_public_key" to receiverPublicKey,
+            "sender_wallet_id" to walletId,
+            "timestamp" to timestampIso,
+        )
+        val rsaSigForSync = try {
+            TransactionSigner.signRsaPssSha256(walletPrivatePem, txDataForServerSign)
+        } catch (e: Exception) {
+            return Result.failure(IllegalStateException("Could not sign transaction for server sync: ${e.message}", e))
+        }
+
+        val teePayloadSig = try {
             val s = TeeEcdsaSigner.getInstance(context)
             s.getOrCreateKeyPair()
             Base64.encodeToString(s.sign(rawPayload.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
@@ -266,7 +320,15 @@ object BleHandshake {
             "tee-unavailable"
         }
 
-        val encReceipt = runCatching { EncryptionHelper.encrypt(context, rawPayload) }.getOrElse { "{}" }
+        val encReceipt = runCatching {
+            val innerCipher = EncryptionHelper.encrypt(context, rawPayload)
+            val binding = JSONObject()
+                .put("tee_payload_sig_b64", teePayloadSig)
+                .put("payload_cipher", innerCipher)
+                .toString()
+            EncryptionHelper.encrypt(context, binding)
+        }.getOrElse { "{}" }
+        val payloadContentHash = OfflineLedgerChain.sha256HexUtf8(rawPayload)
 
         val localTransaction = LocalTransaction(
             txId = payload.txId,
@@ -274,9 +336,9 @@ object BleHandshake {
             receiverPublicKey = receiverPublicKey,
             amount = amountInPkr,
             currency = "PKR",
-            transactionSignature = teeSig,
+            transactionSignature = rsaSigForSync,
             nonce = payload.nonce,
-            receiptHash = "",
+            receiptHash = payloadContentHash,
             receiptData = encReceipt,
             status = "pending",
             createdAtDevice = payload.timestamp,
@@ -286,6 +348,8 @@ object BleHandshake {
             direction = "SENT",
             rawPayload = rawPayload,
         )
+        // WalletRepository.saveLocalTransaction applies OfflineLedgerChain.appendEncryptedAndChained
+        // (ledgerPrevHash / ledgerEntryHash / ledgerSequence) for server-side chain verification.
         repository.saveLocalTransaction(localTransaction)
         val newBalance = currentBalance.subtract(transactionAmount)
         repository.updateOfflineWalletBalance(walletId, newBalance.toPlainString())

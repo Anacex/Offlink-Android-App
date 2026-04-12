@@ -78,6 +78,14 @@ Verification flow:
 
 ---
 
+## Local ledger, encryption, and server sync
+
+Both **SENT** (`persistSenderLedger`) and **RECEIVED** (`persistReceiverLedger`) rows go through **`WalletRepository.saveLocalTransaction`**, which applies **`OfflineLedgerChain.appendEncryptedAndChained`**: AES-GCM at rest for plaintext-looking JSON, **`receipt_hash`** = SHA-256 of raw payload JSON, and **`ledger_*`** fields for tamper-evident sequencing.
+
+When the user is online, **`SyncRepository`** posts pending rows to **`POST /api/v1/offline-transactions/sync`** over **HTTPS**. **SENT** rows use the sender map + signature; **RECEIVED** rows set **`transaction_data.direction`** to **`RECEIVED`** and include **`receiver_wallet_id`** (stored in `LocalTransaction.senderWalletId` on the payee device), **`payer_id`**, **`payee_id`**, **`tx_id`**, etc., signed with the **receiver’s** cached wallet RSA key (`TransactionSigner.signRsaPssSha256`). The **`receipt`** object includes **`receipt_hash`** and, when the stored receipt is ciphertext, **`receipt_ciphertext_b64`** for server-side audit JSON.
+
+---
+
 ## Device and security requirements
 
 | Check | Sender | Receiver |
@@ -103,6 +111,9 @@ If any check fails, **Send** / **Receive payment (Bluetooth)** show a **Toast** 
 - `ble/BleGattClientManager.kt` / `BleGattServerManager.kt` — central / peripheral roles.
 - `ble/BlePaymentLink.kt` — shared session, **atomic** flag, **`sessionAbortFlow`** on link loss.
 - `ble/BleHandshake.kt` — verify/sign and ledger persistence; races ack/OK waits against abort.
+- `data/repository/SyncRepository.kt` — pending **SENT** + **RECEIVED** sync; receipt map for ciphertext audit.
+- `security/OfflineLedgerChain.kt` — encrypt-at-rest + hash chain before insert.
+- `utils/TransactionSigner.kt` — RSA-PSS-SHA256 canonical JSON matching `app/core/crypto.py`.
 - `ble/BleOfflinkEligibility.kt` — user-facing **blocked** reasons.
 - `ui/SendPaymentScreen.kt` — waits for BLE ack; **no manual “Sent”** when `wasLinkedForBleSend`; link-loss UI.
 - `ui/qr/TransactionQRScannerScreen.kt` — BLE receive path with abort handling + Toast.

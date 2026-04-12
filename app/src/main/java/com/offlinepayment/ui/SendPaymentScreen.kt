@@ -242,8 +242,8 @@ fun SendPaymentScreen(
 		}
 	}
 
-	LaunchedEffect(transactionCompleted, bleHandshakeEnabled) {
-		if (transactionCompleted && bleHandshakeEnabled) {
+	LaunchedEffect(transactionCompleted) {
+		if (transactionCompleted) {
 			BlePaymentLink.clear()
 		}
 	}
@@ -323,6 +323,47 @@ fun SendPaymentScreen(
 					}
 				}
 			}
+		} else if (!bleHandshakeEnabled) {
+			Column(
+				modifier = Modifier
+					.fillMaxSize()
+					.padding(24.dp),
+				horizontalAlignment = Alignment.CenterHorizontally,
+				verticalArrangement = Arrangement.Center,
+			) {
+				Card(
+					modifier = Modifier.fillMaxWidth(),
+					colors = CardDefaults.cardColors(containerColor = Color.White),
+					elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+				) {
+					Column(
+						modifier = Modifier.padding(24.dp),
+						horizontalAlignment = Alignment.CenterHorizontally,
+					) {
+						Text(
+							text = "Bluetooth link required",
+							fontSize = 22.sp,
+							fontWeight = FontWeight.Bold,
+							color = Color(0xFFDC2626),
+						)
+						Spacer(modifier = Modifier.height(12.dp))
+						Text(
+							text = "Offlink processes payments only after you pair with the receiver over Bluetooth, exchange wallet QR codes, confirm the payment QR, exchange BLE acknowledgements, and write to the encrypted ledger.",
+							fontSize = 15.sp,
+							color = Color(0xFF6B7280),
+							textAlign = TextAlign.Center,
+						)
+						Spacer(modifier = Modifier.height(20.dp))
+						Button(
+							onClick = onBleLinkLostExit,
+							modifier = Modifier.fillMaxWidth(),
+							colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+						) {
+							Text("Back to wallet", fontWeight = FontWeight.Bold)
+						}
+					}
+				}
+			}
 		} else {
 			val scrollState = rememberScrollState()
 			Column(
@@ -350,9 +391,10 @@ fun SendPaymentScreen(
 						color = Color(0xFF059669)
 					)
 					Text(
-						text = "Scan QR code to send money",
-						fontSize = 16.sp,
-						color = Color.Gray
+						text = "Linked via Bluetooth — scan receiver's wallet QR",
+						fontSize = 15.sp,
+						color = Color.Gray,
+						textAlign = TextAlign.Center,
 					)
 				}
 			}
@@ -1035,7 +1077,7 @@ fun SendPaymentScreen(
 									)
 									Spacer(modifier = Modifier.height(8.dp))
 									Text(
-										text = "Transaction receipt has been saved to local storage",
+										text = "BLE acknowledgements completed; payment saved to your encrypted ledger.",
 										fontSize = 12.sp,
 										color = Color(0xFF6B7280),
 										textAlign = TextAlign.Center
@@ -1045,8 +1087,7 @@ fun SendPaymentScreen(
 							Spacer(modifier = Modifier.height(16.dp))
 							Button(
 								onClick = {
-									// Reset everything for new transaction
-									if (bleHandshakeEnabled) BlePaymentLink.clear()
+									BlePaymentLink.clear()
 									showQRCode = false
 									qrBitmap = null
 									amount = ""
@@ -1064,131 +1105,10 @@ fun SendPaymentScreen(
 							) {
 								Text("Start New Payment")
 							}
-						} else if (!bleHandshakeEnabled) {
-							// Show Sent button (sender clicks after receiver scans)
-							Text(
-								text = "After receiver scans this QR code, click 'Sent' to confirm payment and save to local storage",
-								fontSize = 12.sp,
-								color = Color(0xFF6B7280),
-								textAlign = TextAlign.Center,
-								modifier = Modifier.padding(bottom = 8.dp)
-							)
-							Button(
-								onClick = {
-									// Create transaction receipt and save to local storage
-									val payload = currentTransactionPayload
-									if (payload != null) {
-										scope.launch {
-											try {
-												val moshi = com.squareup.moshi.Moshi.Builder()
-													.add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
-													.build()
-												val adapter = moshi.adapter(com.offlinepayment.data.TransactionPayloadQR::class.java)
-												val rawPayload = adapter.toJson(payload)
-												
-												// Save transaction to local storage as "SENT"
-												// Convert amount from paisa (Long) to PKR string format
-												val amountInPkr = java.math.BigDecimal(payload.amount.toString())
-													.divide(java.math.BigDecimal("100"))
-													.toPlainString()
-
-												// Ensure offline wallet has enough balance before creating the transaction
-												val offlineWallet = repository.getOfflineWalletById(walletId)
-												if (offlineWallet == null) {
-													balanceError = "Offline wallet not found. Please refresh wallets online first."
-													return@launch
-												}
-												val currentBalance = java.math.BigDecimal(offlineWallet.balance)
-												val transactionAmount = java.math.BigDecimal(payload.amount.toString()).divide(java.math.BigDecimal("100"))
-												if (currentBalance < transactionAmount) {
-													balanceError = "Insufficient offline balance for this amount."
-													return@launch
-												}
-												
-												// Get receiver public key: prefer QR, otherwise try fetching receiver's offline wallet by payeeId
-												var receiverPublicKey = scannedPayeeQR?.public_key
-												if (receiverPublicKey.isNullOrBlank()) {
-													val payeeUserId = scannedPayeeQR?.payeeId?.toIntOrNull()
-													val receiverWallet = payeeUserId?.let {
-														repository.getOfflineWalletByUserIdAndType(it, "offline")
-													}
-													receiverPublicKey = receiverWallet?.publicKey
-												}
-
-												if (receiverPublicKey.isNullOrBlank()) {
-													balanceError = "Receiver public key missing. Ask receiver to share an updated QR."
-												} else {
-													// Only proceed when receiverPublicKey is present
-													val localTransaction = com.offlinepayment.data.local.LocalTransaction(
-														txId = payload.txId,
-														senderWalletId = walletId,
-														receiverPublicKey = receiverPublicKey,
-														amount = amountInPkr,
-														currency = "PKR",
-														// Provide a non-empty signature placeholder so backend passes presence check.
-														// Real signing can be wired later.
-														transactionSignature = "unsigned-placeholder",
-														nonce = payload.nonce,
-														receiptHash = "", // Will be set when receipt is created
-														receiptData = "{}", // Will be set when receipt is created
-														status = "pending",
-														createdAtDevice = payload.timestamp,
-														deviceFingerprint = com.offlinepayment.data.session.DeviceFingerprintProvider.getFingerprint(),
-														// Legacy fields for backward compatibility
-														payerId = payload.payerId,
-														payeeId = payload.payeeId,
-														direction = "SENT",
-														rawPayload = rawPayload
-													)
-													
-													repository.saveLocalTransaction(localTransaction)
-													
-													// Update sender's wallet balance (subtract amount)
-													val newBalance = currentBalance.subtract(transactionAmount)
-													repository.updateOfflineWalletBalance(walletId, newBalance.toPlainString())
-													
-													// Mark transaction as completed
-													transactionCompleted = true
-												}
-												
-											} catch (e: Exception) {
-												balanceError = "Failed to save transaction: ${e.message}"
-											}
-										}
-									}
-								},
-								modifier = Modifier.fillMaxWidth(),
-								colors = ButtonDefaults.buttonColors(
-									containerColor = Color(0xFF059669)
-								)
-							) {
-								Text("Sent", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-							}
-							Spacer(modifier = Modifier.height(8.dp))
-							OutlinedButton(
-								onClick = {
-									if (bleHandshakeEnabled) BlePaymentLink.clear()
-									showQRCode = false
-									qrBitmap = null
-									amount = ""
-									biometricAuthenticated = false
-									scannedPayeeQR = null
-									transactionCompleted = false
-									currentTransactionPayload = null
-									showPayeeConfirmation = false
-									bleHandshakeError = null
-								},
-								modifier = Modifier.fillMaxWidth(),
-								colors = ButtonDefaults.outlinedButtonColors(
-									contentColor = Color(0xFFEF4444)
-								)
-							) {
-								Text("Cancel Transaction")
-							}
 						} else {
 							OutlinedButton(
 								onClick = {
-									if (bleHandshakeEnabled) BlePaymentLink.clear()
+									BlePaymentLink.clear()
 									showQRCode = false
 									qrBitmap = null
 									amount = ""
@@ -1230,7 +1150,7 @@ fun SendPaymentScreen(
 						)
 						Spacer(modifier = Modifier.height(8.dp))
 						Text(
-							text = "• Scan recipient's QR code using camera\n• Or select QR image from gallery\n• Enter amount and confirm payment\n• Transaction processed instantly offline",
+							text = "• Stay connected to the receiver over Bluetooth\n• Scan their wallet QR, enter amount, show your payment QR\n• Receiver scans it; BLE acks run; both sides save to the encrypted ledger\n• Success when the link and signatures complete",
 							fontSize = 14.sp,
 							color = Color.White.copy(alpha = 0.9f),
 							textAlign = TextAlign.Center

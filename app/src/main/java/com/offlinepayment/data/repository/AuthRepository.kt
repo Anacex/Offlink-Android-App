@@ -101,13 +101,15 @@ class AuthRepository(
                 try {
                     fetchUserInfo().fold(
                         onSuccess = { userInfo ->
-                            AuthSessionManager.updateSession(
-                                AuthSessionManager.currentSession()!!.copy(
-                                    userEmail = userInfo.email,
-                                    isEmailVerified = userInfo.emailVerified,
-                                    userId = userInfo.id
+                            AuthSessionManager.currentSession()?.let { currentSession ->
+                                AuthSessionManager.updateSession(
+                                    currentSession.copy(
+                                        userEmail = userInfo.email,
+                                        isEmailVerified = userInfo.emailVerified,
+                                        userId = userInfo.id
+                                    )
                                 )
-                            )
+                            }
                             // Save verified user to local database for offline login
                             if (userInfo.emailVerified) {
                                 saveUserForOfflineLogin(email, password, userInfo.email, userInfo.id, userInfo.name, userInfo.phone, userInfo.totalBalance, userInfo.offlineBalance)
@@ -162,13 +164,15 @@ class AuthRepository(
             try {
                     fetchUserInfo().fold(
                         onSuccess = { userInfo ->
-                            AuthSessionManager.updateSession(
-                                AuthSessionManager.currentSession()!!.copy(
-                                    userEmail = userInfo.email,
-                                    isEmailVerified = userInfo.emailVerified,
-                                    userId = userInfo.id
+                            AuthSessionManager.currentSession()?.let { currentSession ->
+                                AuthSessionManager.updateSession(
+                                    currentSession.copy(
+                                        userEmail = userInfo.email,
+                                        isEmailVerified = userInfo.emailVerified,
+                                        userId = userInfo.id
+                                    )
                                 )
-                            )
+                            }
                             // Save verified user to local database for offline login
                             // Note: password not available for OTP logins, so offline login won't be saved
                             // Users who login via OTP can't use offline login anyway

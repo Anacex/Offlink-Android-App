@@ -2,6 +2,7 @@ package com.offlinepayment.data.session
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import com.offlinepayment.utils.EncryptionHelper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +17,7 @@ data class AuthSession(
 )
 
 object AuthSessionManager {
+    private const val TAG = "AuthSessionManager"
     private const val PREFS_NAME = "auth_session_prefs"
     private const val KEY_ACCESS_TOKEN = "access_token"
     private const val KEY_REFRESH_TOKEN = "refresh_token"
@@ -45,7 +47,12 @@ object AuthSessionManager {
     @Synchronized
     fun updateSession(newSession: AuthSession?) {
         sessionFlow.value = newSession
-        persistSession(newSession)
+        try {
+            persistSession(newSession)
+        } catch (e: Exception) {
+            // Keep the in-memory session alive even if encrypted persistence fails on a device.
+            Log.e(TAG, "Failed to persist auth session securely", e)
+        }
     }
 
     fun currentSession(): AuthSession? {
@@ -98,17 +105,31 @@ object AuthSessionManager {
 
     private fun loadSession(sharedPreferences: SharedPreferences): AuthSession? {
         val appContext = appContext ?: return null
-        val deviceFingerprint = sharedPreferences.getString(KEY_DEVICE_FINGERPRINT, null)
-            ?.let { EncryptionHelper.decrypt(appContext, it) }
-            ?.takeIf { it.isNotBlank() }
-            ?: return null
+        val deviceFingerprint = try {
+            sharedPreferences.getString(KEY_DEVICE_FINGERPRINT, null)
+                ?.let { EncryptionHelper.decrypt(appContext, it) }
+                ?.takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to decrypt persisted device fingerprint", e)
+            null
+        } ?: return null
 
-        val accessToken = sharedPreferences.getString(KEY_ACCESS_TOKEN, null)
-            ?.let { EncryptionHelper.decrypt(appContext, it) }
-            .orEmpty()
-        val refreshToken = sharedPreferences.getString(KEY_REFRESH_TOKEN, null)
-            ?.let { EncryptionHelper.decrypt(appContext, it) }
-            .orEmpty()
+        val accessToken = try {
+            sharedPreferences.getString(KEY_ACCESS_TOKEN, null)
+                ?.let { EncryptionHelper.decrypt(appContext, it) }
+                .orEmpty()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to decrypt persisted access token", e)
+            ""
+        }
+        val refreshToken = try {
+            sharedPreferences.getString(KEY_REFRESH_TOKEN, null)
+                ?.let { EncryptionHelper.decrypt(appContext, it) }
+                .orEmpty()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to decrypt persisted refresh token", e)
+            ""
+        }
         val userId = if (sharedPreferences.contains(KEY_USER_ID)) {
             sharedPreferences.getInt(KEY_USER_ID, 0)
         } else {
@@ -120,8 +141,13 @@ object AuthSessionManager {
             refreshToken = refreshToken,
             deviceFingerprint = deviceFingerprint,
             isEmailVerified = sharedPreferences.getBoolean(KEY_IS_EMAIL_VERIFIED, false),
-            userEmail = sharedPreferences.getString(KEY_USER_EMAIL, null)
-                ?.let { EncryptionHelper.decrypt(appContext, it) },
+            userEmail = try {
+                sharedPreferences.getString(KEY_USER_EMAIL, null)
+                    ?.let { EncryptionHelper.decrypt(appContext, it) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to decrypt persisted user email", e)
+                null
+            },
             userId = userId,
         )
     }

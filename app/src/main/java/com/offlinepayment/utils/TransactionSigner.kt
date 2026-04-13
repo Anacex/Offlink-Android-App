@@ -30,19 +30,56 @@ object TransactionSigner {
      * Canonical JSON for sync (sorted keys, same types as FastAPI `tx_for_verify`).
      */
     fun canonicalJsonForSyncSigning(data: Map<String, Any>): String {
+        // IMPORTANT: Must byte-match server canonicalization:
+        // Python: json.dumps(transaction_data, sort_keys=True, separators=(",", ":"))
+        // Using JSONObject() is NOT safe because key ordering is not guaranteed.
         val sorted = TreeMap<String, Any>()
         sorted.putAll(data)
-        val o = JSONObject()
-        for ((k, v) in sorted) {
+        val sb = StringBuilder()
+        sb.append('{')
+        var first = true
+        for ((k, vRaw) in sorted) {
+            if (!first) sb.append(',')
+            first = false
+            sb.append('"').append(escapeJsonString(k)).append('"').append(':')
+            val v = when (vRaw) {
+                is Int, is Long, is Boolean -> vRaw
+                is String -> vRaw
+                else -> vRaw.toString()
+            }
             when (v) {
-                is Int -> o.put(k, v)
-                is Long -> o.put(k, v)
-                is String -> o.put(k, v)
-                is Boolean -> o.put(k, v)
-                else -> o.put(k, v.toString())
+                is Int -> sb.append(v)
+                is Long -> sb.append(v)
+                is Boolean -> sb.append(if (v) "true" else "false")
+                is String -> sb.append('"').append(escapeJsonString(v)).append('"')
+                else -> sb.append('"').append(escapeJsonString(v.toString())).append('"')
             }
         }
-        return o.toString()
+        sb.append('}')
+        return sb.toString()
+    }
+
+    private fun escapeJsonString(s: String): String {
+        val out = StringBuilder(s.length + 8)
+        for (ch in s) {
+            when (ch) {
+                '\\' -> out.append("\\\\")
+                '"' -> out.append("\\\"")
+                '\b' -> out.append("\\b")
+                '\u000C' -> out.append("\\f")
+                '\n' -> out.append("\\n")
+                '\r' -> out.append("\\r")
+                '\t' -> out.append("\\t")
+                else -> {
+                    if (ch.code < 0x20) {
+                        out.append(String.format("\\u%04x", ch.code))
+                    } else {
+                        out.append(ch)
+                    }
+                }
+            }
+        }
+        return out.toString()
     }
 
     /**

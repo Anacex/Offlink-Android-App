@@ -23,6 +23,7 @@ import com.offlinepayment.data.local.OfflineUser
 import com.offlinepayment.data.network.AuthApi
 import com.offlinepayment.data.session.AuthSession
 import com.offlinepayment.data.session.AuthSessionManager
+import com.offlinepayment.security.DeviceLedgerSeedStore
 import com.offlinepayment.utils.AccountBlockedParser
 import com.offlinepayment.utils.PasswordUtils
 import com.offlinepayment.utils.ErrorUtils
@@ -191,7 +192,16 @@ class AuthRepository(
         }
     }
     
-    suspend fun fetchUserInfo(): Result<UserInfoResponse> = safeApiCall { api.getUserInfo() }
+    suspend fun fetchUserInfo(): Result<UserInfoResponse> = safeApiCall {
+        api.getUserInfo().also { info ->
+            // Seed the local device ledger chain on first online login / refresh.
+            // This is only used when the local DB has no chained tail (fresh install).
+            val ctx = context
+            if (ctx != null) {
+                DeviceLedgerSeedStore.save(ctx, info.deviceLedgerPrevHash, info.deviceLedgerNextSequence)
+            }
+        }
+    }
 
     suspend fun refreshToken(deviceFingerprint: String): Result<TokenRefreshResponse> {
         val current = AuthSessionManager.currentSession()

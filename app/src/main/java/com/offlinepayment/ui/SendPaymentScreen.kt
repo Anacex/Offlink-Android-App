@@ -26,6 +26,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -98,6 +99,8 @@ fun SendPaymentScreen(
 	var transactionCompleted by remember { mutableStateOf(false) } // Track if transaction is completed
 	var currentTransactionPayload by remember { mutableStateOf<com.offlinepayment.data.TransactionPayloadQR?>(null) } // Store current transaction payload
 	var bleHandshakeError by remember { mutableStateOf<String?>(null) }
+	var bleHandshakeInProgress by remember { mutableStateOf(false) }
+	var showCompletionScreen by remember { mutableStateOf(false) }
 	
 	// Update scannedPayeeQR when it comes from navigation
 	LaunchedEffect(scannedPayeeQRFromNav) {
@@ -162,9 +165,11 @@ fun SendPaymentScreen(
 		val payload = currentTransactionPayload ?: return@LaunchedEffect
 		if (!showQRCode) return@LaunchedEffect
 		if (transactionCompleted) return@LaunchedEffect
+		bleHandshakeInProgress = true
 		bleHandshakeError = null
 		if (!BlePaymentLink.senderBleSessionActive) {
 			bleHandshakeError = "Bluetooth disconnected. This payment cannot continue without the link."
+			bleHandshakeInProgress = false
 			return@LaunchedEffect
 		}
 		BlePaymentLink.beginAtomicBleTransaction()
@@ -202,24 +207,18 @@ fun SendPaymentScreen(
 			}
 			if (abortReason != null) {
 				bleHandshakeError = abortReason
-				showQRCode = false
-				qrBitmap = null
-				currentTransactionPayload = null
+				bleHandshakeInProgress = false
 				return@LaunchedEffect
 			}
 			if (ack == null) {
 				bleHandshakeError = "Timed out waiting for receiver Bluetooth acknowledgment."
-				showQRCode = false
-				qrBitmap = null
-				currentTransactionPayload = null
+				bleHandshakeInProgress = false
 				return@LaunchedEffect
 			}
 			val okSent = BleHandshake.senderVerifyAckAndReplyOk(context, ack, payload)
 			if (!okSent) {
 				bleHandshakeError = "Could not send Bluetooth confirmation to receiver."
-				showQRCode = false
-				qrBitmap = null
-				currentTransactionPayload = null
+				bleHandshakeInProgress = false
 				return@LaunchedEffect
 			}
 			val payee = scannedPayeeQR
@@ -230,12 +229,15 @@ fun SendPaymentScreen(
 				walletId = walletId,
 				scannedPayeeQR = payee,
 			)
-			result.onSuccess { transactionCompleted = true }
+			result.onSuccess {
+				transactionCompleted = true
+				showCompletionScreen = true
+				showQRCode = false // exit QR view after atomic completion
+				bleHandshakeInProgress = false
+			}
 			result.onFailure { e ->
 				bleHandshakeError = e.message ?: "Failed to save payment"
-				showQRCode = false
-				qrBitmap = null
-				currentTransactionPayload = null
+				bleHandshakeInProgress = false
 			}
 		} finally {
 			BlePaymentLink.endAtomicBleTransaction()
@@ -1051,6 +1053,20 @@ fun SendPaymentScreen(
 								color = Color(0xFF1D4ED8),
 								textAlign = TextAlign.Center,
 							)
+							if (bleHandshakeInProgress) {
+								Spacer(modifier = Modifier.height(8.dp))
+								Row(
+									verticalAlignment = Alignment.CenterVertically,
+									horizontalArrangement = Arrangement.spacedBy(8.dp),
+								) {
+									CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+									Text(
+										text = "Exchanging acknowledgements…",
+										fontSize = 12.sp,
+										color = Color(0xFF1D4ED8),
+									)
+								}
+							}
 							bleHandshakeError?.let { err ->
 								Spacer(modifier = Modifier.height(8.dp))
 								Text(text = err, color = Color(0xFFDC2626), fontSize = 13.sp, textAlign = TextAlign.Center)
@@ -1081,6 +1097,25 @@ fun SendPaymentScreen(
 										color = Color(0xFF6B7280),
 										textAlign = TextAlign.Center
 									)
+									currentTransactionPayload?.let { p ->
+										Spacer(modifier = Modifier.height(10.dp))
+										Text(
+											text = "TxID: ${p.txId.take(16)}…",
+											fontSize = 12.sp,
+											color = Color(0xFF374151),
+										)
+										Text(
+											text = "Nonce: ${p.nonce.take(16)}…",
+											fontSize = 12.sp,
+											color = Color(0xFF374151),
+										)
+										Text(
+											text = "Payee ID: ${p.payeeId} • Payer ID: ${p.payerId}",
+											fontSize = 12.sp,
+											color = Color(0xFF374151),
+											textAlign = TextAlign.Center,
+										)
+									}
 								}
 							}
 							Spacer(modifier = Modifier.height(16.dp))
@@ -1128,6 +1163,61 @@ fun SendPaymentScreen(
 						}
 					}
 				}
+				}
+
+				if (showCompletionScreen && currentTransactionPayload != null) {
+					Spacer(modifier = Modifier.height(16.dp))
+					Card(
+						modifier = Modifier.fillMaxWidth(),
+						colors = CardDefaults.cardColors(containerColor = Color.White),
+						elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+					) {
+						Column(
+							modifier = Modifier.padding(20.dp),
+							horizontalAlignment = Alignment.CenterHorizontally,
+						) {
+							Text(
+								text = "Transaction completed",
+								fontSize = 20.sp,
+								fontWeight = FontWeight.Bold,
+								color = Color(0xFF059669),
+							)
+							Spacer(modifier = Modifier.height(8.dp))
+							val p = currentTransactionPayload!!
+							Text(
+								text = "Amount: ${CurrencyUtils.formatPkr(p.amount / 100.0)}",
+								fontSize = 16.sp,
+								fontWeight = FontWeight.Medium,
+								color = Color(0xFF111827),
+							)
+							Spacer(modifier = Modifier.height(8.dp))
+							Text(text = "TxID: ${p.txId}", fontSize = 12.sp, color = Color(0xFF374151))
+							Text(text = "Nonce: ${p.nonce}", fontSize = 12.sp, color = Color(0xFF374151))
+							Text(
+								text = "Payer: ${p.payerId} • Payee: ${p.payeeId}",
+								fontSize = 12.sp,
+								color = Color(0xFF374151),
+								textAlign = TextAlign.Center,
+							)
+							Spacer(modifier = Modifier.height(16.dp))
+							Button(
+								onClick = {
+									BlePaymentLink.clear()
+									showCompletionScreen = false
+									transactionCompleted = false
+									currentTransactionPayload = null
+									scannedPayeeQR = null
+									amount = ""
+									biometricAuthenticated = false
+									bleHandshakeError = null
+								},
+								modifier = Modifier.fillMaxWidth(),
+								colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+							) {
+								Text("Done", fontWeight = FontWeight.Bold)
+							}
+						}
+					}
 				}
 
 				Spacer(modifier = Modifier.height(16.dp))

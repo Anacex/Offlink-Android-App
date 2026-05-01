@@ -64,11 +64,13 @@ class BleGattServerManager(
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             if (newState == BluetoothGatt.STATE_CONNECTED) {
                 connectedDevice = device
+                Log.d(TAG, "Central connected status=$status device=${device.address}")
                 mainHandler.post { onCentralConnected?.invoke(device) }
             } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
                 if (connectedDevice?.address == device.address) {
                     connectedDevice = null
                 }
+                Log.d(TAG, "Central disconnected status=$status device=${device.address}")
                 mainHandler.post { onCentralDisconnected?.invoke() }
             }
         }
@@ -88,6 +90,7 @@ class BleGattServerManager(
             value: ByteArray,
         ) {
             if (characteristic.uuid == BleOfflinkContract.CHAR_CMD_WRITE) {
+                Log.d(TAG, "CMD write len=${value.size} responseNeeded=$responseNeeded")
                 if (responseNeeded) {
                     gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
                 }
@@ -107,10 +110,19 @@ class BleGattServerManager(
             value: ByteArray,
         ) {
             if (descriptor.uuid == BleOfflinkContract.CCCD_UUID) {
-                gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, value)
+                // Persist the CCC value so the stack treats notifications as enabled.
+                descriptor.value = value
+                Log.d(TAG, "CCCD write len=${value.size} responseNeeded=$responseNeeded")
+                if (responseNeeded) {
+                    gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, value)
+                }
             } else if (responseNeeded) {
                 gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, 0, null)
             }
+        }
+
+        override fun onNotificationSent(device: BluetoothDevice, status: Int) {
+            Log.d(TAG, "onNotificationSent status=$status device=${device.address}")
         }
     }
 
@@ -191,7 +203,9 @@ class BleGattServerManager(
             packet[1] = 0
             System.arraycopy(payload, 0, packet, 2, payload.size)
             char.value = packet
-            return g.notifyCharacteristicChanged(device, char, false)
+            val ok = g.notifyCharacteristicChanged(device, char, false)
+            Log.d(TAG, "notify ACK ok=$ok total=1 bytes=${payload.size}")
+            return ok
         }
 
         val total = (payload.size + mtuPayload - 1) / mtuPayload
@@ -208,11 +222,7 @@ class BleGattServerManager(
             char.value = packet
             val ok = g.notifyCharacteristicChanged(device, char, false)
             if (!ok) return false
-            try {
-                Thread.sleep(25)
-            } catch (_: InterruptedException) {
-                break
-            }
+            Log.d(TAG, "notify ACK ok=$ok part=${i + 1}/$total bytes=${chunk.size}")
         }
         return true
     }

@@ -103,5 +103,9 @@ data class UserInfoResponse(
     @Json(name = "totalBalance")
     val totalBalance: Double = 0.0,
     @Json(name = "offlineBalance")
-    val offlineBalance: Double = 0.0
+    val offlineBalance: Double = 0.0,
+    @Json(name = "deviceLedgerPrevHash")
+    val deviceLedgerPrevHash: String? = null,
+    @Json(name = "deviceLedgerNextSequence")
+    val deviceLedgerNextSequence: Long? = null,
 )

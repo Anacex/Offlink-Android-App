@@ -93,8 +93,11 @@ object OfflineLedgerChain {
     ): LocalTransaction {
         val enc = encryptAtRest(context, tx)
         val tail = dao.getLatestChainedTail()
-        val prev = tail?.ledgerEntryHash?.takeIf { it.isNotBlank() } ?: GENESIS_PREV_HASH
-        val seq = (tail?.ledgerSequence ?: 0L) + 1L
+        val seed = if (tail == null) DeviceLedgerSeedStore.load(context) else null
+        val prev = tail?.ledgerEntryHash?.takeIf { it.isNotBlank() }
+            ?: seed?.prevHash
+            ?: GENESIS_PREV_HASH
+        val seq = (tail?.ledgerSequence ?: (seed?.nextSequence?.minus(1L) ?: 0L)) + 1L
         val canonical = buildIntegrityCanonicalJson(enc)
         val entry = entryHash(prev, canonical)
         return enc.copy(

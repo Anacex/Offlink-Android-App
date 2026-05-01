@@ -447,6 +447,9 @@ fun MainAppContent(
                 composable("ble-receiver-ready") {
                     val uid = finalUserId?.toString() ?: "0"
                     BleReceiverReadyScreen(
+                        userId = finalUserId!!,
+                        userName = userName,
+                        offlineBalancePkr = userBalance,
                         userIdSuffix = uid,
                         onBack = {
                             BlePaymentLink.server?.stop()
@@ -672,9 +675,6 @@ fun MainAppContent(
                             onAccept = {
                                 // Transaction already saved as "RECEIVED" in TransactionQRScannerScreen
                                 navController.popBackStack("wallet", inclusive = false)
-                            },
-                            onReject = {
-                                navController.popBackStack()
                             }
                         )
                     } ?: run {

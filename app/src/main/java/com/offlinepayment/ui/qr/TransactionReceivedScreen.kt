@@ -29,7 +29,7 @@ import java.util.Locale
 fun TransactionReceivedScreen(
     transactionPayload: TransactionPayloadQR,
     onAccept: () -> Unit,
-    onReject: () -> Unit
+    onReject: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -64,7 +64,7 @@ fun TransactionReceivedScreen(
         
         // Title
         Text(
-            text = "Payment received",
+            text = "Transaction completed",
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold,
             color = Color(0xFF111827)
@@ -73,7 +73,7 @@ fun TransactionReceivedScreen(
         Spacer(modifier = Modifier.height(8.dp))
         
         Text(
-            text = "Review the payment details below",
+            text = "Saved to your encrypted ledger (pending sync)",
             fontSize = 14.sp,
             color = Color(0xFF6B7280)
         )
@@ -183,32 +183,16 @@ fun TransactionReceivedScreen(
         
         Spacer(modifier = Modifier.height(32.dp))
         
-        // Action Buttons
-        Row(
+        // Action Button (atomic BLE flow already committed; no "reject" here)
+        Button(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            onClick = onAccept,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF059669)
+            ),
+            shape = RoundedCornerShape(12.dp)
         ) {
-            OutlinedButton(
-                modifier = Modifier.weight(1f),
-                onClick = onReject,
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = Color(0xFFDC2626)
-                ),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text("Reject", fontWeight = FontWeight.Bold)
-            }
-            
-            Button(
-                modifier = Modifier.weight(1f),
-                onClick = onAccept,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF059669)
-                ),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text("Accept Payment", fontWeight = FontWeight.Bold)
-            }
+            Text("Done", fontWeight = FontWeight.Bold)
         }
     }
 }

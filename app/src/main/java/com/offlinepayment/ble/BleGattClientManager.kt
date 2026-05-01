@@ -72,10 +72,12 @@ class BleGattClientManager(
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothGatt.STATE_CONNECTED) {
+                Log.d(TAG, "Connected status=$status device=${gatt.device.address}")
                 gatt.requestMtu(BleOfflinkContract.REQUEST_MTU)
                 gatt.discoverServices()
                 mainHandler.post { onConnected?.invoke() }
             } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
+                Log.d(TAG, "Disconnected status=$status device=${gatt.device.address}")
                 mainHandler.post { onDisconnected?.invoke() }
             }
         }
@@ -91,12 +93,38 @@ class BleGattClientManager(
             ackCharacteristic = service.getCharacteristic(BleOfflinkContract.CHAR_ACK_NOTIFY)
             cmdCharacteristic = service.getCharacteristic(BleOfflinkContract.CHAR_CMD_WRITE)
             val ack = ackCharacteristic ?: return
-            gatt.setCharacteristicNotification(ack, true)
+            val notifOk = gatt.setCharacteristicNotification(ack, true)
+            Log.d(TAG, "setCharacteristicNotification=${notifOk} ack=${ack.uuid}")
             val cccd = ack.getDescriptor(BleOfflinkContract.CCCD_UUID)
             if (cccd != null) {
-                cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                gatt.writeDescriptor(cccd)
+                val value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                cccd.value = value
+                val writeOk = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    gatt.writeDescriptor(cccd, value) == BluetoothGatt.GATT_SUCCESS
+                } else {
+                    @Suppress("DEPRECATION")
+                    gatt.writeDescriptor(cccd)
+                }
+                Log.d(TAG, "CCCD write issued=$writeOk uuid=${cccd.uuid}")
+            } else {
+                Log.w(TAG, "CCCD descriptor missing on ACK characteristic")
             }
+        }
+
+        override fun onDescriptorWrite(
+            gatt: BluetoothGatt,
+            descriptor: BluetoothGattDescriptor,
+            status: Int,
+        ) {
+            Log.d(TAG, "onDescriptorWrite uuid=${descriptor.uuid} status=$status")
+        }
+
+        override fun onCharacteristicWrite(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            status: Int,
+        ) {
+            Log.d(TAG, "onCharacteristicWrite uuid=${characteristic.uuid} status=$status")
         }
 
         override fun onCharacteristicChanged(
@@ -105,6 +133,7 @@ class BleGattClientManager(
             value: ByteArray,
         ) {
             if (characteristic.uuid != BleOfflinkContract.CHAR_ACK_NOTIFY) return
+            Log.d(TAG, "onCharacteristicChanged ACK len=${value.size}")
             handleAckFragment(value)
         }
 
@@ -112,6 +141,7 @@ class BleGattClientManager(
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             val value = characteristic.value ?: return
             if (characteristic.uuid != BleOfflinkContract.CHAR_ACK_NOTIFY) return
+            Log.d(TAG, "onCharacteristicChanged(deprecated) ACK len=${value.size}")
             handleAckFragment(value)
         }
 

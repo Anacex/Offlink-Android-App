@@ -110,8 +110,9 @@ kotlin-tooling-metadata.json
 # APK Analysis
 *.apk.idsig
 
-# Signing files
+# Signing files (passwords — never commit)
 signing.properties
+keystore.properties
 
 # NDK
 obj/

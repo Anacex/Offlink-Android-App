@@ -1,8 +1,16 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
     id("kotlin-parcelize")
+}
+
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties()
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
 
 // Allow local Wi-Fi testing without committing LAN/IP changes.
@@ -18,7 +26,8 @@ android {
 
     defaultConfig {
         applicationId = "com.offlinepayment"
-        minSdk = 24
+        // API 29+ (Android 10+): security baseline; devices still receive vendor/Google updates in scope.
+        minSdk = 29
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
@@ -29,20 +38,31 @@ android {
         )
     }
 
-    buildTypes {
-        debug {
-            // Needed for local Wi-Fi tests when using http:// (not https://).
-            // For production/release you should keep this as false and use HTTPS.
-            manifestPlaceholders["usesCleartextTraffic"] = "true"
+    signingConfigs {
+        create("release") {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile")!!)
+                storePassword = keystoreProperties.getProperty("storePassword")
+                enableV3Signing = true
+                enableV4Signing = true
+            }
         }
+    }
+
+    buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            manifestPlaceholders["usesCleartextTraffic"] = "false"
+            isDebuggable = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

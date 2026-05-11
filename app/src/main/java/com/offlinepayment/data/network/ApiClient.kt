@@ -32,11 +32,7 @@ object ApiClient {
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
         redactHeader("Authorization")
         redactHeader("x-device-fingerprint")
-        level = if (BuildConfig.DEBUG) {
-            HttpLoggingInterceptor.Level.BODY
-        } else {
-            HttpLoggingInterceptor.Level.NONE
-        }
+        level = HttpLoggingInterceptor.Level.BODY
     }
 
     private val okHttp = OkHttpClient.Builder()
@@ -44,7 +40,12 @@ object ApiClient {
         .readTimeout(60, TimeUnit.SECONDS)    // Time to wait for response (increased for slow Render servers)
         .writeTimeout(30, TimeUnit.SECONDS)   // Time to send request
         .addInterceptor(authHeaderInterceptor)
-        .addInterceptor(loggingInterceptor)
+        .apply {
+            // Do not ship HttpLoggingInterceptor in release (MobSF / no body logs in prod).
+            if (BuildConfig.DEBUG) {
+                addInterceptor(loggingInterceptor)
+            }
+        }
         .build()
 
     // Custom BigDecimal adapter for Moshi
